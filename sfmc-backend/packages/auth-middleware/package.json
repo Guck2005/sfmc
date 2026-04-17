@@ -1,0 +1,13 @@
+{
+  "name": "@sfmc/auth-middleware",
+  "version": "1.0.0",
+  "description": "Middleware JWT réutilisable pour tous les microservices SFMC",
+  "main": "index.js",
+  "types": "index.ts",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

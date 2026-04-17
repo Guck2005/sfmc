@@ -1,0 +1,19 @@
+{
+  "name": "sfmc-backend",
+  "version": "1.0.0",
+  "description": "SFMC Bénin — Plateforme microservices AdonisJS 6",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "docker-compose up -d",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=9.0.0"
+  }
+}

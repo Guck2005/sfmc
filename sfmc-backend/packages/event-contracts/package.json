@@ -1,0 +1,13 @@
+{
+  "name": "@sfmc/event-contracts",
+  "version": "1.0.0",
+  "description": "Schémas RabbitMQ typés et contrats d'événements SFMC",
+  "main": "index.js",
+  "types": "index.ts",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

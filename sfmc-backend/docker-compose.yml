@@ -1,0 +1,129 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: sfmc-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  auth-db:
+    image: postgres:15
+    container_name: sfmc-auth-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_auth
+    ports:
+      - "5431:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+
+  user-db:
+    image: postgres:15
+    container_name: sfmc-user-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_user
+    ports:
+      - "5432:5432"
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+
+  product-db:
+    image: postgres:15
+    container_name: sfmc-product-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_product
+    ports:
+      - "5433:5432"
+    volumes:
+      - product_db_data:/var/lib/postgresql/data
+
+  inventory-db:
+    image: postgres:15
+    container_name: sfmc-inventory-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_inventory
+    ports:
+      - "5434:5432"
+    volumes:
+      - inventory_db_data:/var/lib/postgresql/data
+
+  order-db:
+    image: postgres:15
+    container_name: sfmc-order-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_order
+    ports:
+      - "5435:5432"
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+
+  production-db:
+    image: postgres:15
+    container_name: sfmc-production-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_production
+    ports:
+      - "5436:5432"
+    volumes:
+      - production_db_data:/var/lib/postgresql/data
+
+  billing-db:
+    image: postgres:15
+    container_name: sfmc-billing-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_billing
+    ports:
+      - "5437:5432"
+    volumes:
+      - billing_db_data:/var/lib/postgresql/data
+
+  notification-db:
+    image: postgres:15
+    container_name: sfmc-notification-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_notification
+    ports:
+      - "5438:5432"
+    volumes:
+      - notification_db_data:/var/lib/postgresql/data
+
+  reporting-db:
+    image: postgres:15
+    container_name: sfmc-reporting-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_reporting
+    ports:
+      - "5439:5432"
+    volumes:
+      - reporting_db_data:/var/lib/postgresql/data
+
+volumes:
+  auth_db_data:
+  user_db_data:
+  product_db_data:
+  inventory_db_data:
+  order_db_data:
+  production_db_data:
+  billing_db_data:
+  notification_db_data:
+  reporting_db_data:
