@@ -56,7 +56,14 @@ export default defineConfig({
   | List of modules to import before starting the application.
   |
   */
-  preloads: [() => import('#start/routes'), () => import('#start/kernel')],
+  preloads: [
+    () => import('#start/routes'),
+    () => import('#start/kernel'),
+    {
+      file: () => import('#start/rabbitmq'),
+      environment: ['web'],
+    },
+  ],
 
   /*
   |--------------------------------------------------------------------------
@@ -77,6 +84,11 @@ export default defineConfig({
       {
         files: ['tests/functional/**/*.spec(.ts|.js)'],
         name: 'functional',
+        timeout: 30000,
+      },
+      {
+        files: ['tests/integration/**/*.spec(.ts|.js)'],
+        name: 'integration',
         timeout: 30000,
       },
     ],

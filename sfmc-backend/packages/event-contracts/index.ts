@@ -4,6 +4,8 @@ import type { DomainEvent } from '@sfmc/shared-types'
 
 export const EXCHANGE_NAME = 'sfmc.events'
 export const EXCHANGE_TYPE = 'topic'
+export const DLX_NAME = 'sfmc.dlx'
+export const DLQ_NAME = 'sfmc.dlq'
 
 export type EventType =
   // Order events
@@ -36,16 +38,39 @@ export interface OrderValidatedPayload {
   totalAmount: number
 }
 
+export interface OrderCancelledPayload {
+  orderId: string
+  customerId: string
+  reason?: string
+  lines?: Array<{ productId: string; quantity: number }>
+}
+
 export interface InventoryReservedPayload {
   sagaId: string
   orderId: string
   reservations: Array<{ productId: string; quantity: number }>
 }
 
+export interface InventoryReservationFailedPayload {
+  sagaId: string
+  orderId: string
+  reason: string
+  details?: Array<{ productId: string; requested: number; available: number }>
+}
+
+export interface InventoryCriticalPayload {
+  productId: string
+  warehouseId: string
+  stockId: string
+  available: number
+  threshold: number
+}
+
 export interface ProductionCompletedPayload {
   productionOrderId: string
   orderId?: string
   productId: string
+  warehouseId?: string
   quantity: number
 }
 
@@ -53,7 +78,8 @@ export function createEvent<T extends Record<string, unknown>>(
   type: EventType,
   payload: T,
   sourceService: string,
-  sagaId?: string
+  sagaId?: string,
+  correlationId?: string
 ): DomainEvent {
   return {
     id: crypto.randomUUID(),
@@ -63,7 +89,7 @@ export function createEvent<T extends Record<string, unknown>>(
     payload,
     metadata: {
       sourceService,
-      correlationId: crypto.randomUUID(),
+      correlationId: correlationId ?? crypto.randomUUID(),
       ...(sagaId ? { sagaId } : {}),
     },
   }
