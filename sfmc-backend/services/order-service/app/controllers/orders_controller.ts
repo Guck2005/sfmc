@@ -104,4 +104,21 @@ export default class OrdersController {
       throw err
     }
   }
+
+  /**
+   * POST /api/v1/orders/:id/cancel — annulation spécifique
+   */
+  async cancel({ params, response }: HttpContext) {
+    try {
+      const order = await cancelOrder(params.id)
+      return response.ok({ data: order })
+    } catch (err) {
+      if (err instanceof InvalidTransitionError) {
+        return response.unprocessableEntity({
+          error: { code: err.code, message: err.message },
+        })
+      }
+      throw err
+    }
+  }
 }

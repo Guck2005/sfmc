@@ -19,8 +19,8 @@ router
     router.post('/', [() => import('#controllers/orders_controller'), 'store'])
     router.get('/', [() => import('#controllers/orders_controller'), 'index'])
     router.get('/:id', [() => import('#controllers/orders_controller'), 'show'])
-    router
-      .put('/:id/status', [() => import('#controllers/orders_controller'), 'updateStatus'])
+    router.post('/:id/cancel', [() => import('#controllers/orders_controller'), 'cancel'])
+    router.put('/:id/status', [() => import('#controllers/orders_controller'), 'updateStatus'])
       .use(middleware.role(['OPERATOR']))
     router.delete('/:id', [() => import('#controllers/orders_controller'), 'destroy'])
   })

@@ -3,8 +3,8 @@ import type { OrderStatus } from '#models/order'
 export const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   PENDING: ['VALIDATED', 'CANCELLED'],
   VALIDATED: ['IN_PRODUCTION', 'READY', 'CANCELLED'],
-  IN_PRODUCTION: ['READY', 'CANCELLED'],
-  READY: ['SHIPPED', 'CANCELLED'],
+  IN_PRODUCTION: ['READY'],
+  READY: ['SHIPPED'],
   SHIPPED: ['DELIVERED'],
   DELIVERED: [],
   CANCELLED: [],
