@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sfmc-config
+  namespace: sfmc
+data:
+  NODE_ENV: "production"
+  TZ: "UTC"
+  LOG_LEVEL: "info"
+  HOST: "0.0.0.0"
+  DB_USER: "postgres"
+  DB_SSL: "false"
+  RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672"

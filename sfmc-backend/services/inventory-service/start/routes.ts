@@ -5,10 +5,31 @@
 */
 
 import router from '@adonisjs/core/services/router'
+import db from '@adonisjs/lucid/services/db'
+import { isConnected as isRabbitConnected } from '#services/rabbitmq'
 import type { HttpContext } from '@adonisjs/core/http'
 import { HeaderMap } from '@apollo/server'
 
-router.get('/health', async () => ({ status: 'ok', service: 'inventory-service' }))
+router.get('/health', async ({ response }: HttpContext) => {
+  const checks: Record<string, string> = {}
+  let allOk = true
+  try {
+    await db.rawQuery('SELECT 1')
+    checks.database = 'ok'
+  } catch {
+    checks.database = 'error'
+    allOk = false
+  }
+  checks.rabbitmq = isRabbitConnected() ? 'ok' : 'error'
+  if (checks.rabbitmq !== 'ok') allOk = false
+  return response.status(allOk ? 200 : 503).send({
+    status: allOk ? 'ok' : 'degraded',
+    service: 'inventory-service',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    checks,
+  })
+})
 
 // Warehouses
 router.group(() => {

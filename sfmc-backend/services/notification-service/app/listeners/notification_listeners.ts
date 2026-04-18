@@ -4,7 +4,7 @@ import { dispatch } from '#services/dispatcher'
 import logger from '@adonisjs/core/services/logger'
 
 // Admin email/phone for internal alerts
-const ADMIN_EMAIL = 'admin@sfmc.bj'
+const ADMIN_EMAIL = 'davidyd07@gmail.com'
 const ADMIN_PHONE = '+22990000000'
 
 /**

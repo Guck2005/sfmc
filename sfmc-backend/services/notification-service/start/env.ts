@@ -24,5 +24,11 @@ export default await Env.create(new URL('../', import.meta.url), {
   DB_DATABASE: Env.schema.string(),
   DB_SSL: Env.schema.boolean.optional(),
   RABBITMQ_URL: Env.schema.string(),
+  BREVO_SMTP_HOST: Env.schema.string(),
+  BREVO_SMTP_PORT: Env.schema.number(),
+  BREVO_SMTP_USER: Env.schema.string(),
+  BREVO_SMTP_PASSWORD: Env.schema.string(),
+  BREVO_SENDER_EMAIL: Env.schema.string(),
+  BREVO_SENDER_NAME: Env.schema.string(),
 })
 

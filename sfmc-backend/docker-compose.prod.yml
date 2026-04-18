@@ -1,0 +1,262 @@
+version: "3.9"
+
+networks:
+  sfmc-network:
+    driver: bridge
+
+x-common-env: &common-env
+  NODE_ENV: production
+  TZ: UTC
+  LOG_LEVEL: info
+  HOST: 0.0.0.0
+  DB_USER: postgres
+  DB_PASSWORD: postgres
+  DB_SSL: "false"
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+  APP_KEY: change-me-to-a-32-char-random-string
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: sfmc-rabbitmq
+    restart: unless-stopped
+    networks: [sfmc-network]
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_auth
+    volumes: [auth_db_data:/var/lib/postgresql/data]
+
+  user-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_user
+    volumes: [user_db_data:/var/lib/postgresql/data]
+
+  product-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_product
+    volumes: [product_db_data:/var/lib/postgresql/data]
+
+  inventory-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_inventory
+    volumes: [inventory_db_data:/var/lib/postgresql/data]
+
+  order-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_order
+    volumes: [order_db_data:/var/lib/postgresql/data]
+
+  production-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_production
+    volumes: [production_db_data:/var/lib/postgresql/data]
+
+  billing-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_billing
+    volumes: [billing_db_data:/var/lib/postgresql/data]
+
+  notification-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_notification
+    volumes: [notification_db_data:/var/lib/postgresql/data]
+
+  reporting-db:
+    image: postgres:15
+    restart: unless-stopped
+    networks: [sfmc-network]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sfmc_reporting
+    volumes: [reporting_db_data:/var/lib/postgresql/data]
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: sfmc-auth-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [auth-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3001
+      DB_HOST: auth-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_auth
+      JWT_SECRET: change-me-jwt-secret-32-chars-min
+    ports: ["3001:3001"]
+
+  user-service:
+    build: ./services/user-service
+    container_name: sfmc-user-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [user-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3002
+      DB_HOST: user-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_user
+    ports: ["3002:3002"]
+
+  product-service:
+    build: ./services/product-service
+    container_name: sfmc-product-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [product-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3003
+      DB_HOST: product-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_product
+    ports: ["3003:3003"]
+
+  inventory-service:
+    build: ./services/inventory-service
+    container_name: sfmc-inventory-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [inventory-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3004
+      DB_HOST: inventory-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_inventory
+    ports: ["3004:3004"]
+
+  order-service:
+    build: ./services/order-service
+    container_name: sfmc-order-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [order-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3005
+      DB_HOST: order-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_order
+    ports: ["3005:3005"]
+
+  production-service:
+    build: ./services/production-service
+    container_name: sfmc-production-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [production-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3006
+      DB_HOST: production-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_production
+    ports: ["3006:3006"]
+
+  billing-service:
+    build: ./services/billing-service
+    container_name: sfmc-billing-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [billing-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3007
+      DB_HOST: billing-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_billing
+    ports: ["3007:3007"]
+
+  notification-service:
+    build: ./services/notification-service
+    container_name: sfmc-notification-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [notification-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3008
+      DB_HOST: notification-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_notification
+    ports: ["3008:3008"]
+
+  reporting-service:
+    build: ./services/reporting-service
+    container_name: sfmc-reporting-service
+    restart: unless-stopped
+    networks: [sfmc-network]
+    depends_on: [reporting-db, rabbitmq]
+    environment:
+      <<: *common-env
+      PORT: 3009
+      DB_HOST: reporting-db
+      DB_PORT: 5432
+      DB_DATABASE: sfmc_reporting
+    ports: ["3009:3009"]
+
+volumes:
+  auth_db_data:
+  user_db_data:
+  product_db_data:
+  inventory_db_data:
+  order_db_data:
+  production_db_data:
+  billing_db_data:
+  notification_db_data:
+  reporting_db_data:

@@ -1,17 +1,6 @@
 import logger from '@adonisjs/core/services/logger'
-
-/**
- * Notification Dispatcher — Stub implementation
- *
- * In production, this would integrate with:
- * - Brevo (Sendinblue) for Email via their REST API
- * - Brevo SMS API for SMS
- *
- * Environment variables (to be configured in Sprint 4):
- * - BREVO_API_KEY: API key for Brevo
- * - BREVO_SENDER_EMAIL: sender email address
- * - BREVO_SMS_SENDER: SMS sender name
- */
+import nodemailer, { Transporter } from 'nodemailer'
+import env from '#start/env'
 
 export interface NotificationPayload {
   recipient: string
@@ -20,57 +9,71 @@ export interface NotificationPayload {
   channel: 'EMAIL' | 'SMS'
 }
 
-/**
- * Stub: Send an email notification
- * In production → POST https://api.brevo.com/v3/smtp/email
- */
-export async function sendEmail(payload: NotificationPayload): Promise<boolean> {
-  logger.info(
-    {
-      to: payload.recipient,
-      subject: payload.subject,
-      channel: 'EMAIL',
+let transporter: Transporter | null = null
+
+function getTransporter(): Transporter {
+  if (transporter) return transporter
+  transporter = nodemailer.createTransport({
+    host: env.get('BREVO_SMTP_HOST'),
+    port: env.get('BREVO_SMTP_PORT'),
+    secure: false,
+    auth: {
+      user: env.get('BREVO_SMTP_USER'),
+      pass: env.get('BREVO_SMTP_PASSWORD'),
     },
-    '📧 [STUB-BREVO-EMAIL] Notification envoyée'
-  )
-  console.info('═══════════════════════════════════════════════════')
-  console.info('📧 EMAIL NOTIFICATION (Stub Brevo)')
-  console.info(`   TO:      ${payload.recipient}`)
-  console.info(`   SUBJECT: ${payload.subject}`)
-  console.info(`   BODY:    ${payload.body}`)
-  console.info('═══════════════════════════════════════════════════')
-  return true
+  })
+  return transporter
+}
+
+export async function sendEmail(payload: NotificationPayload): Promise<boolean> {
+  const senderEmail = env.get('BREVO_SENDER_EMAIL')
+  const senderName = env.get('BREVO_SENDER_NAME')
+
+  try {
+    const info = await getTransporter().sendMail({
+      from: `"${senderName}" <${senderEmail}>`,
+      to: payload.recipient,
+      subject: payload.subject ?? '(no subject)',
+      text: payload.body,
+      html: `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(payload.body)}</pre>`,
+    })
+    logger.info(
+      { to: payload.recipient, subject: payload.subject, messageId: info.messageId },
+      '[brevo] email sent'
+    )
+    return true
+  } catch (err) {
+    logger.error({ err, to: payload.recipient }, '[brevo] email send failed')
+    return false
+  }
 }
 
 /**
- * Stub: Send an SMS notification
- * In production → POST https://api.brevo.com/v3/transactionalSMS/sms
+ * Brevo SMTP relay does not support SMS. SMS routing goes through Brevo's REST
+ * Transactional SMS API (`https://api.brevo.com/v3/transactionalSMS/sms`),
+ * which uses an API key — separate from the SMTP key. Kept as a log-only stub
+ * until that integration is wired.
  */
 export async function sendSms(payload: NotificationPayload): Promise<boolean> {
   logger.info(
-    {
-      to: payload.recipient,
-      channel: 'SMS',
-    },
-    '📱 [STUB-BREVO-SMS] SMS envoyé'
+    { to: payload.recipient, body: payload.body },
+    '[brevo] SMS stub (Brevo REST API not wired yet)'
   )
-  console.info('═══════════════════════════════════════════════════')
-  console.info('📱 SMS NOTIFICATION (Stub Brevo)')
-  console.info(`   TO:   ${payload.recipient}`)
-  console.info(`   BODY: ${payload.body}`)
-  console.info('═══════════════════════════════════════════════════')
   return true
 }
 
-/**
- * Dispatch a notification through the appropriate channel
- */
 export async function dispatch(payload: NotificationPayload): Promise<boolean> {
-  if (payload.channel === 'EMAIL') {
-    return sendEmail(payload)
-  } else if (payload.channel === 'SMS') {
-    return sendSms(payload)
-  }
+  if (payload.channel === 'EMAIL') return sendEmail(payload)
+  if (payload.channel === 'SMS') return sendSms(payload)
   logger.warn({ channel: payload.channel }, '[dispatcher] unknown channel')
   return false
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

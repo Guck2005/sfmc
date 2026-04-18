@@ -51,6 +51,10 @@ export function getChannel(): amqp.Channel {
   return channel
 }
 
+export function isConnected(): boolean {
+  return channel !== null && connection !== null
+}
+
 export async function publishEvent(event: DomainEvent): Promise<void> {
   const hook = globalThis.__sfmcRabbitMQPublishHook
   if (hook) {
