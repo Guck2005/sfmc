@@ -41,6 +41,17 @@ router
       () => import('#controllers/reports_controller'),
       'dashboard',
     ])
+    router.get('/reports/sales', [() => import('#controllers/reports_controller'), 'sales'])
+    router.get('/reports/production', [
+      () => import('#controllers/reports_controller'),
+      'production',
+    ])
+    router.get('/reports/quality', [() => import('#controllers/reports_controller'), 'quality'])
+    router.get('/reports/stock', [() => import('#controllers/reports_controller'), 'stock'])
+    router.get('/reports/:type/export.csv', [
+      () => import('#controllers/reports_controller'),
+      'exportCsv',
+    ])
   })
   .prefix('/api/v1')
 

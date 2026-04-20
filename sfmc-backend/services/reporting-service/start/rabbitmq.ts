@@ -14,6 +14,7 @@ export async function initRabbitMQ() {
     onInventoryCritical,
     onProductionCompleted,
     onProductionQualityFailed,
+    onProductionStatusChanged,
   } = await import('#listeners/reporting_listeners')
 
   const wiring: Array<{
@@ -57,6 +58,11 @@ export async function initRabbitMQ() {
       queue: 'reporting.production_quality_failed_q',
       routingKeys: ['production.quality_failed'],
       handler: onProductionQualityFailed,
+    },
+    {
+      queue: 'reporting.production_status_changed_q',
+      routingKeys: ['production.status_changed'],
+      handler: onProductionStatusChanged,
     },
   ]
 

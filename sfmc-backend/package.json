@@ -9,11 +9,28 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "infra:up": "docker-compose up -d",
+    "infra:down": "docker-compose down",
+    "infra:logs": "docker-compose logs -f",
     "dev": "docker-compose up -d",
+    "dev:all": "concurrently -k -n auth,user,product,inventory,order,production,billing,notification,reporting -c blue,cyan,green,yellow,magenta,red,white,gray,blueBright \"npm:dev:auth\" \"npm:dev:user\" \"npm:dev:product\" \"npm:dev:inventory\" \"npm:dev:order\" \"npm:dev:production\" \"npm:dev:billing\" \"npm:dev:notification\" \"npm:dev:reporting\"",
+    "dev:auth": "npm run dev -w services/auth-service",
+    "dev:user": "npm run dev -w services/user-service",
+    "dev:product": "npm run dev -w services/product-service",
+    "dev:inventory": "npm run dev -w services/inventory-service",
+    "dev:order": "npm run dev -w services/order-service",
+    "dev:production": "npm run dev -w services/production-service",
+    "dev:billing": "npm run dev -w services/billing-service",
+    "dev:notification": "npm run dev -w services/notification-service",
+    "dev:reporting": "npm run dev -w services/reporting-service",
+    "start:full": "npm run infra:up && npm run dev:all",
     "test": "npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

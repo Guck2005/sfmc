@@ -1,7 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { AuthorizedUser } from '#policies/user_policy'
+import { randomUUID } from 'node:crypto'
 import User from '#models/user'
 import UserPolicy from '#policies/user_policy'
+import { publishEvent } from '#services/rabbitmq'
 import {
   createUserValidator,
   updateUserValidator,
@@ -105,8 +107,23 @@ export default class UsersController {
 
     const user = await User.findOrFail(params.id)
     const { role } = await request.validateUsing(updateRoleValidator)
+    const oldRole = user.role
     user.role = role
     await user.save()
+
+    if (oldRole !== role) {
+      await publishEvent({
+        id: randomUUID(),
+        type: 'user.role_changed',
+        timestamp: new Date().toISOString(),
+        payload: {
+          userId: user.id,
+          oldRole,
+          newRole: role,
+          changedBy: actor(ctx)?.id ?? null,
+        },
+      })
+    }
 
     return response.ok({ data: user })
   }

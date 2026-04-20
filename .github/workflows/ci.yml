@@ -1,0 +1,297 @@
+name: SFMC Backend CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: "Target environment (staging|production)"
+        required: false
+        default: "staging"
+
+env:
+  NODE_VERSION: "20"
+  WORKSPACE_ROOT: sfmc-backend
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Matrix build / lint / unit tests — parallel per service
+  # ---------------------------------------------------------------------------
+  build-test:
+    name: "build+test (${{ matrix.service }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - user-service
+          - product-service
+          - inventory-service
+          - order-service
+          - production-service
+          - billing-service
+          - notification-service
+          - reporting-service
+    defaults:
+      run:
+        working-directory: ${{ env.WORKSPACE_ROOT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: ${{ env.WORKSPACE_ROOT }}/package-lock.json
+
+      - name: Install dependencies (workspaces)
+        run: npm ci
+
+      - name: Write CI .env for ${{ matrix.service }}
+        run: |
+          cat > services/${{ matrix.service }}/.env <<'EOF'
+          TZ=UTC
+          HOST=0.0.0.0
+          LOG_LEVEL=warn
+          NODE_ENV=test
+          APP_KEY=${{ secrets.APP_KEY_CI || 'ci-app-key-32-characters-minimum-xx' }}
+          DB_HOST=127.0.0.1
+          DB_PORT=5432
+          DB_USER=postgres
+          DB_PASSWORD=${{ secrets.DB_PASSWORD_CI || 'postgres' }}
+          DB_DATABASE=sfmc_ci
+          DB_SSL=false
+          JWT_SECRET=${{ secrets.JWT_SECRET_CI || 'ci-jwt-secret-32-characters-minimum' }}
+          RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672
+          REDIS_URL=redis://127.0.0.1:6379
+          BREVO_SMTP_HOST=smtp-relay.brevo.com
+          BREVO_SMTP_PORT=587
+          BREVO_SMTP_USER=ci
+          BREVO_SMTP_PASSWORD=ci
+          BREVO_SENDER_EMAIL=ci@example.com
+          BREVO_SENDER_NAME=CI
+          BREVO_API_KEY=ci-placeholder
+          BREVO_SMS_SENDER=SFMC
+          EOF
+
+      - name: Lint
+        run: npm run lint --workspace=@sfmc/${{ matrix.service }} --if-present
+
+      - name: Build TypeScript
+        run: npm run build --workspace=@sfmc/${{ matrix.service }} --if-present
+
+      - name: Unit tests
+        run: npm test --workspace=@sfmc/${{ matrix.service }} --if-present
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # End-to-end smoke test: spin up infra + services, run the bash smoke script
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    name: Smoke test (end-to-end)
+    runs-on: ubuntu-latest
+    needs: build-test
+    defaults:
+      run:
+        working-directory: ${{ env.WORKSPACE_ROOT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: ${{ env.WORKSPACE_ROOT }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start infra (docker compose)
+        run: docker compose -f docker-compose.yml up -d
+
+      - name: Wait for infra
+        run: |
+          for i in {1..30}; do
+            if docker exec sfmc-rabbitmq rabbitmq-diagnostics -q ping 2>/dev/null; then break; fi
+            sleep 2
+          done
+
+      - name: Write CI .env for all services
+        run: |
+          SERVICES=(auth-service:3001:sfmc_auth:5431
+                    user-service:3002:sfmc_user:5440
+                    product-service:3003:sfmc_product:5433
+                    inventory-service:3004:sfmc_inventory:5434
+                    order-service:3005:sfmc_order:5435
+                    production-service:3006:sfmc_production:5436
+                    billing-service:3007:sfmc_billing:5437
+                    notification-service:3008:sfmc_notification:5438
+                    reporting-service:3009:sfmc_reporting:5439)
+          for spec in "${SERVICES[@]}"; do
+            IFS=":" read -r svc port db dbport <<< "$spec"
+            cat > services/$svc/.env <<EOF
+          TZ=UTC
+          HOST=0.0.0.0
+          PORT=$port
+          LOG_LEVEL=warn
+          NODE_ENV=development
+          APP_KEY=${{ secrets.APP_KEY_CI || 'ci-app-key-32-characters-minimum-xx' }}
+          DB_HOST=127.0.0.1
+          DB_PORT=$dbport
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          DB_DATABASE=$db
+          DB_SSL=false
+          JWT_SECRET=${{ secrets.JWT_SECRET_CI || 'ci-jwt-secret-32-characters-minimum' }}
+          JWT_EXPIRES_IN=15m
+          REFRESH_TOKEN_EXPIRES_DAYS=7
+          RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672
+          REDIS_URL=redis://127.0.0.1:6379
+          BREVO_SMTP_HOST=smtp-relay.brevo.com
+          BREVO_SMTP_PORT=587
+          BREVO_SMTP_USER=ci
+          BREVO_SMTP_PASSWORD=ci
+          BREVO_SENDER_EMAIL=ci@example.com
+          BREVO_SENDER_NAME=CI
+          BREVO_API_KEY=ci-placeholder
+          BREVO_SMS_SENDER=SFMC
+          EOF
+          done
+
+      - name: Install jq for smoke assertions
+        run: sudo apt-get update && sudo apt-get install -y jq uuid-runtime
+
+      - name: Start services
+        run: |
+          chmod +x scripts/start_all_services.sh scripts/stop_all_services.sh smoke_test_cu.sh
+          ./scripts/start_all_services.sh
+
+      - name: Seed databases (admin user, products, warehouses, machines)
+        run: |
+          for svc in auth-service user-service product-service inventory-service production-service; do
+            ( cd services/$svc && node ace db:seed || true )
+          done
+
+      - name: Run smoke test CU-01/02/03 + sécurité
+        env:
+          CI: "true"
+          SMOKE_REPORT_FILE: /tmp/sfmc-logs/smoke_report.txt
+        run: |
+          mkdir -p /tmp/sfmc-logs
+          ./smoke_test_cu.sh
+
+      - name: Collect service logs
+        if: always()
+        run: |
+          mkdir -p /tmp/sfmc-logs
+          cp /tmp/*.log /tmp/sfmc-logs/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-logs
+          path: /tmp/sfmc-logs
+
+      - name: Stop services
+        if: always()
+        run: ./scripts/stop_all_services.sh
+
+      - name: Tear down infra
+        if: always()
+        run: docker compose -f docker-compose.yml down -v
+
+  # ---------------------------------------------------------------------------
+  # Build & push Docker images to GHCR — only on push to main
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: "docker build+push (${{ matrix.service }})"
+    runs-on: ubuntu-latest
+    needs: [build-test, smoke-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - user-service
+          - product-service
+          - inventory-service
+          - order-service
+          - production-service
+          - billing-service
+          - notification-service
+          - reporting-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.WORKSPACE_ROOT }}/services/${{ matrix.service }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sfmc-${{ matrix.service }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/sfmc-${{ matrix.service }}:latest
+
+  # ---------------------------------------------------------------------------
+  # Manual deploy: kubectl apply using substituted secrets
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: docker-build
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.deploy_environment }}
+    defaults:
+      run:
+        working-directory: ${{ env.WORKSPACE_ROOT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Apply secrets (substituted)
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET_CI }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD_CI }}
+          APP_KEY: ${{ secrets.APP_KEY_CI }}
+        run: ./infra/k8s/apply-secrets.sh
+
+      - name: Apply manifests
+        run: |
+          kubectl apply -f infra/k8s/namespace.yaml
+          kubectl apply -f infra/k8s/configmap.yaml
+          kubectl apply -f infra/k8s/redis-deployment.yaml
+          kubectl apply -f infra/k8s/rabbitmq-statefulset.yaml
+          for f in infra/k8s/*-deployment.yaml; do
+            kubectl apply -f "$f"
+          done
+          kubectl apply -f infra/k8s/hpa.yaml

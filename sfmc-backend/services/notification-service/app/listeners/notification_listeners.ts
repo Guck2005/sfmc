@@ -2,126 +2,189 @@ import Notification from '#models/notification'
 import ProcessedEvent from '#models/processed_event'
 import { dispatch } from '#services/dispatcher'
 import logger from '@adonisjs/core/services/logger'
+import env from '#start/env'
 
-// Admin email/phone for internal alerts
-const ADMIN_EMAIL = 'davidyd07@gmail.com'
-const ADMIN_PHONE = '+22990000000'
+const FALLBACK_EMAIL = 'davidyd07@gmail.com'
+
+function adminEmail(): string {
+  return env.get('ADMIN_FALLBACK_EMAIL') || FALLBACK_EMAIL
+}
+
+function logisticsEmail(): string {
+  return env.get('LOGISTICS_EMAIL') || adminEmail()
+}
+
+function productionEmail(): string {
+  return env.get('PRODUCTION_EMAIL') || adminEmail()
+}
+
+function financeEmail(): string {
+  return env.get('FINANCE_EMAIL') || adminEmail()
+}
+
+function uniqueRecipients(list: Array<string | undefined | null>): string[] {
+  const set = new Set<string>()
+  for (const r of list) {
+    if (r && r.includes('@')) set.add(r.trim().toLowerCase())
+  }
+  return Array.from(set)
+}
 
 /**
- * Helper: check idempotency and create notification record
+ * Send an Email to one or multiple recipients and record a notification row
+ * per recipient. Idempotent at the event level: if the event was already
+ * processed we skip the whole thing.
+ *
+ * Note — per BF 6 the project runs Email-only. `dispatcher.sendSms` is kept
+ * intentionally in place but no listener calls it anymore.
  */
-async function processNotification(
+async function sendEmailNotification(
   event: any,
-  recipient: string,
+  recipients: string[],
   type: string,
-  channel: 'EMAIL' | 'SMS',
   subject: string,
   body: string
-) {
-  // Idempotency check
+): Promise<void> {
   const alreadyProcessed = await ProcessedEvent.find(event.id)
   if (alreadyProcessed) {
     logger.info({ eventId: event.id }, '[notification] event already processed, skipping')
     return
   }
 
-  const success = await dispatch({ recipient, subject, body, channel })
-
-  await Notification.create({
-    recipient,
-    type,
-    channel,
-    status: success ? 'SENT' : 'FAILED',
-    payload: JSON.stringify(event.payload),
-  })
+  const targets = recipients.length === 0 ? [adminEmail()] : recipients
+  for (const recipient of targets) {
+    const success = await dispatch({ recipient, subject, body, channel: 'EMAIL' })
+    await Notification.create({
+      recipient,
+      type,
+      channel: 'EMAIL',
+      status: success ? 'SENT' : 'FAILED',
+      payload: JSON.stringify(event.payload),
+    })
+  }
 
   await ProcessedEvent.create({ eventId: event.id, eventType: event.type })
 }
 
-/**
- * order.validated → Email au client
- */
+// ---------------------------------------------------------------------------
+// Client-facing events (Email only)
+// ---------------------------------------------------------------------------
+
 export async function onOrderValidated(event: any) {
   logger.info({ eventId: event.id }, '[notification] received order.validated')
   const payload = event.payload
-  const customerEmail = payload.customerEmail || ADMIN_EMAIL
+  const recipients = uniqueRecipients([payload.customerEmail])
 
-  await processNotification(
+  await sendEmailNotification(
     event,
-    customerEmail,
+    recipients,
     'ORDER_VALIDATED',
-    'EMAIL',
     `Commande ${payload.orderId} validée`,
-    `Votre commande n°${payload.orderId} a été validée avec succès. Montant: ${payload.totalAmount} ${payload.currency || 'XOF'}.`
+    `Bonjour,\n\nVotre commande n°${payload.orderId} a été validée avec succès.\nMontant total : ${payload.totalAmount} ${payload.currency || 'XOF'}.\n\nMerci de votre confiance.\nSFMC Bénin`
   )
 }
 
-/**
- * order.shipped → SMS au client
- */
 export async function onOrderShipped(event: any) {
   logger.info({ eventId: event.id }, '[notification] received order.shipped')
   const payload = event.payload
-  const customerPhone = payload.customerPhone || ADMIN_PHONE
+  const recipients = uniqueRecipients([payload.customerEmail])
 
-  await processNotification(
+  await sendEmailNotification(
     event,
-    customerPhone,
+    recipients,
     'ORDER_SHIPPED',
-    'SMS',
-    'Expédition commande',
-    `SFMC: Votre commande ${payload.orderId} est en cours de livraison.`
+    `Commande ${payload.orderId} expédiée`,
+    `Bonjour,\n\nVotre commande n°${payload.orderId} est en cours de livraison.\nDate d'expédition : ${payload.shippedAt ?? new Date().toISOString()}.\n\nVous recevrez une nouvelle notification dès la livraison.\nSFMC Bénin`
   )
 }
 
-/**
- * production.quality_failed → Email alerte admin production
- */
-export async function onProductionQualityFailed(event: any) {
-  logger.info({ eventId: event.id }, '[notification] received production.quality_failed')
+export async function onOrderDelivered(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received order.delivered')
   const payload = event.payload
+  const recipients = uniqueRecipients([payload.customerEmail])
 
-  await processNotification(
+  await sendEmailNotification(
     event,
-    ADMIN_EMAIL,
-    'QUALITY_FAILED',
-    'EMAIL',
-    `⚠️ Échec qualité — Produit ${payload.productId}`,
-    `Alerte qualité: Le produit ${payload.productId} (commande ${payload.orderId}, qté: ${payload.quantity}) a échoué au contrôle qualité. Raison: ${payload.reason || 'Non spécifiée'}.`
+    recipients,
+    'ORDER_DELIVERED',
+    `Commande ${payload.orderId} livrée`,
+    `Bonjour,\n\nVotre commande n°${payload.orderId} a été livrée avec succès.\nDate : ${payload.deliveredAt ?? new Date().toISOString()}.\n\nNous vous remercions pour votre confiance.\nSFMC Bénin`
   )
 }
 
-/**
- * inventory.critical_stock → Email alerte admin achats
- */
-export async function onInventoryCriticalStock(event: any) {
-  logger.info({ eventId: event.id }, '[notification] received inventory.critical_stock')
-  const payload = event.payload
-
-  await processNotification(
-    event,
-    ADMIN_EMAIL,
-    'CRITICAL_STOCK',
-    'EMAIL',
-    `🔴 Alerte stock critique — ${payload.productId}`,
-    `Le stock du produit ${payload.productId} est critique: ${payload.currentQuantity} unités restantes (seuil: ${payload.threshold}).`
-  )
-}
-
-/**
- * order.cancelled → Email au client et/ou Admin
- */
 export async function onOrderCancelled(event: any) {
   logger.info({ eventId: event.id }, '[notification] received order.cancelled')
   const payload = event.payload
-  const customerEmail = payload.customerEmail || ADMIN_EMAIL
+  const recipients = uniqueRecipients([payload.customerEmail])
 
-  await processNotification(
+  await sendEmailNotification(
     event,
-    customerEmail,
+    recipients,
     'ORDER_CANCELLED',
-    'EMAIL',
     `Commande ${payload.orderId} annulée`,
-    `Votre commande n°${payload.orderId} a été annulée. Raison: ${payload.reason || 'Manuel'}.`
+    `Bonjour,\n\nVotre commande n°${payload.orderId} a été annulée.\nRaison : ${payload.reason || 'Non spécifiée'}.\n\nPour toute question, contactez notre support.\nSFMC Bénin`
   )
 }
+
+// ---------------------------------------------------------------------------
+// Internal operational events (Email only, multi-recipient)
+// ---------------------------------------------------------------------------
+
+export async function onProductionCompleted(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received production.completed')
+  const payload = event.payload
+  const recipients = uniqueRecipients([logisticsEmail()])
+
+  await sendEmailNotification(
+    event,
+    recipients,
+    'PRODUCTION_COMPLETED',
+    `Production terminée — ${payload.productId}`,
+    `Production terminée.\n\nOrdre de fabrication : ${payload.productionOrderId}\nProduit : ${payload.productId}\nQuantité : ${payload.quantity}\n${payload.orderId ? `Commande associée : ${payload.orderId}` : '(stock libre)'}\n\nLe stock de produits finis a été mis à jour.`
+  )
+}
+
+export async function onProductionQualityFailed(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received production.quality_failed')
+  const payload = event.payload
+  const recipients = uniqueRecipients([productionEmail()])
+
+  await sendEmailNotification(
+    event,
+    recipients,
+    'QUALITY_FAILED',
+    `[ALERTE] Échec contrôle qualité — ${payload.productId}`,
+    `Alerte qualité :\n\nLe produit ${payload.productId} (OF ${payload.productionOrderId ?? '?'}, quantité ${payload.quantity ?? '?'}) a échoué au contrôle qualité.\nRaison : ${payload.reason || 'Non spécifiée'}.\n\nMerci de lancer une analyse immédiate.`
+  )
+}
+
+export async function onInventoryCritical(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received inventory.critical')
+  const payload = event.payload
+  const recipients = uniqueRecipients([logisticsEmail(), productionEmail()])
+
+  await sendEmailNotification(
+    event,
+    recipients,
+    'CRITICAL_STOCK',
+    `[ALERTE] Stock critique — ${payload.productId}`,
+    `Stock critique détecté :\n\nProduit : ${payload.productId}\nEntrepôt : ${payload.warehouseId}\nDisponible : ${payload.available}\nSeuil : ${payload.threshold}\n\nMerci de planifier un réapprovisionnement ou un ordre de fabrication.`
+  )
+}
+
+export async function onBillingInvoiceCreated(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received billing.invoice_created')
+  const payload = event.payload
+  const recipients = uniqueRecipients([payload.customerEmail, financeEmail()])
+
+  await sendEmailNotification(
+    event,
+    recipients,
+    'INVOICE_CREATED',
+    `Facture ${payload.invoiceId} générée`,
+    `Une facture a été générée :\n\nFacture : ${payload.invoiceId}\nCommande : ${payload.orderId}\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}\n\nVous pouvez la consulter ou la télécharger depuis votre espace client.\nSFMC Bénin`
+  )
+}
+
+// Back-compat alias (older wiring)
+export const onInventoryCriticalStock = onInventoryCritical

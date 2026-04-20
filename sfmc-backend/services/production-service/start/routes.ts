@@ -12,6 +12,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import { isConnected as isRabbitConnected } from '#services/rabbitmq'
 const ProductionOrdersController = () => import('#controllers/production_orders_controller')
+const MachinesController = () => import('#controllers/machines_controller')
 
 router.get('/health', async ({ response }: HttpContext) => {
   const checks: Record<string, string> = {}
@@ -36,8 +37,15 @@ router.get('/health', async ({ response }: HttpContext) => {
 
 router
   .group(() => {
+    router.get('/production-orders', [ProductionOrdersController, 'index'])
+    router.get('/production-orders/:id', [ProductionOrdersController, 'show'])
     router.post('/production-orders', [ProductionOrdersController, 'create'])
     router.put('/production-orders/:id/status', [ProductionOrdersController, 'updateStatus'])
     router.post('/production-orders/:id/quality', [ProductionOrdersController, 'qualityControl'])
+
+    router.get('/machines', [MachinesController, 'index'])
+    router.get('/machines/:id', [MachinesController, 'show'])
+    router.post('/machines', [MachinesController, 'store'])
+    router.put('/machines/:id/status', [MachinesController, 'updateStatus'])
   })
   .prefix('/api/v1')

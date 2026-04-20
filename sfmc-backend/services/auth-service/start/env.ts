@@ -26,5 +26,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   JWT_SECRET: Env.schema.string(),
   JWT_EXPIRES_IN: Env.schema.string.optional(),
   REFRESH_TOKEN_EXPIRES_DAYS: Env.schema.number.optional(),
+  REDIS_URL: Env.schema.string(),
+  RABBITMQ_URL: Env.schema.string.optional(),
 })
 

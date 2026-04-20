@@ -1,50 +1,31 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
+import { hitRateLimit } from '#services/rate_limiter'
 
 /**
- * Rate limiter in-memory (5 requests per IP per 15 min window).
- * NOTE: Per-process state — fine for dev / single pod. Migrate to Redis
- * before running multiple replicas in production.
+ * Distributed rate limiter middleware — 5 requests per IP per 15 min window.
+ * State is held in Redis so all auth-service pods share the same counter,
+ * making the limit enforced at the infrastructure level rather than per-pod.
  */
-const WINDOW_MS = 15 * 60 * 1000
-const MAX_REQUESTS = 5
-
-interface Bucket {
-  count: number
-  resetAt: number
-}
-
-const buckets = new Map<string, Bucket>()
-
-function getKey(ctx: HttpContext): string {
-  return ctx.request.ip() || 'unknown'
-}
-
 export default class ThrottleMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    const key = getKey(ctx)
-    const now = Date.now()
-    const current = buckets.get(key)
+    const ip = ctx.request.ip() || 'unknown'
+    const result = await hitRateLimit(ip)
 
-    if (!current || current.resetAt < now) {
-      buckets.set(key, { count: 1, resetAt: now + WINDOW_MS })
-      return next()
-    }
+    ctx.response.header('X-RateLimit-Limit', String(result.limit))
+    ctx.response.header('X-RateLimit-Remaining', String(result.remaining))
 
-    if (current.count >= MAX_REQUESTS) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAt - now) / 1000))
-      ctx.response.header('Retry-After', String(retryAfterSeconds))
-      ctx.response.header('X-RateLimit-Limit', String(MAX_REQUESTS))
-      ctx.response.header('X-RateLimit-Remaining', '0')
+    if (!result.allowed) {
+      ctx.response.header('Retry-After', String(result.retryAfterSeconds))
       return ctx.response.tooManyRequests({
-        error: 'Too many requests — rate limit exceeded',
-        retryAfter: retryAfterSeconds,
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many requests — rate limit exceeded',
+        },
+        retryAfter: result.retryAfterSeconds,
       })
     }
 
-    current.count += 1
-    ctx.response.header('X-RateLimit-Limit', String(MAX_REQUESTS))
-    ctx.response.header('X-RateLimit-Remaining', String(MAX_REQUESTS - current.count))
     return next()
   }
 }

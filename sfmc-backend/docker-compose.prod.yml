@@ -27,8 +27,24 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sfmc-redis
+    restart: unless-stopped
+    networks: [sfmc-network]
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -128,7 +144,7 @@ services:
     container_name: sfmc-auth-service
     restart: unless-stopped
     networks: [sfmc-network]
-    depends_on: [auth-db, rabbitmq]
+    depends_on: [auth-db, rabbitmq, redis]
     environment:
       <<: *common-env
       PORT: 3001
@@ -136,6 +152,7 @@ services:
       DB_PORT: 5432
       DB_DATABASE: sfmc_auth
       JWT_SECRET: change-me-jwt-secret-32-chars-min
+      REDIS_URL: redis://redis:6379
     ports: ["3001:3001"]
 
   user-service:
@@ -260,3 +277,5 @@ volumes:
   billing_db_data:
   notification_db_data:
   reporting_db_data:
+  rabbitmq_data:
+  redis_data:

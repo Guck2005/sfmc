@@ -25,6 +25,15 @@ function getTransporter(): Transporter {
   return transporter
 }
 
+/**
+ * Test-only helper: lets specs inject a fake transporter (e.g. a stub that
+ * records calls) without going through nodemailer. Not exported via the
+ * public surface of the module documentation.
+ */
+export function __setTransporterForTest(t: Transporter | null): void {
+  transporter = t
+}
+
 export async function sendEmail(payload: NotificationPayload): Promise<boolean> {
   const senderEmail = env.get('BREVO_SENDER_EMAIL')
   const senderName = env.get('BREVO_SENDER_NAME')
@@ -49,17 +58,57 @@ export async function sendEmail(payload: NotificationPayload): Promise<boolean> 
 }
 
 /**
- * Brevo SMTP relay does not support SMS. SMS routing goes through Brevo's REST
- * Transactional SMS API (`https://api.brevo.com/v3/transactionalSMS/sms`),
- * which uses an API key — separate from the SMTP key. Kept as a log-only stub
- * until that integration is wired.
+ * SMS via Brevo Transactional SMS REST API
+ * POST https://api.brevo.com/v3/transactionalSMS/sms
+ *
+ * Requires BREVO_API_KEY (separate from SMTP credentials). If the key is
+ * absent or the API returns ≥ 400 we log and return false so the caller can
+ * record the failure in the notifications table.
  */
 export async function sendSms(payload: NotificationPayload): Promise<boolean> {
-  logger.info(
-    { to: payload.recipient, body: payload.body },
-    '[brevo] SMS stub (Brevo REST API not wired yet)'
-  )
-  return true
+  const apiKey = env.get('BREVO_API_KEY')
+  const sender = env.get('BREVO_SMS_SENDER')
+
+  if (!apiKey) {
+    logger.warn({ to: payload.recipient }, '[brevo-sms] BREVO_API_KEY not set — skipping send')
+    return false
+  }
+
+  try {
+    const res = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'content-type': 'application/json',
+        'api-key': apiKey,
+      },
+      body: JSON.stringify({
+        sender,
+        recipient: payload.recipient,
+        content: payload.body,
+        type: 'transactional',
+      }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      logger.error(
+        { to: payload.recipient, status: res.status, body: text },
+        '[brevo-sms] send failed'
+      )
+      return false
+    }
+
+    const data = (await res.json().catch(() => ({}))) as { messageId?: string }
+    logger.info(
+      { to: payload.recipient, messageId: data.messageId },
+      '[brevo-sms] SMS sent'
+    )
+    return true
+  } catch (err) {
+    logger.error({ err, to: payload.recipient }, '[brevo-sms] transport error')
+    return false
+  }
 }
 
 export async function dispatch(payload: NotificationPayload): Promise<boolean> {

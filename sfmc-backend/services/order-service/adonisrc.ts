@@ -1,4 +1,4 @@
-import { defineConfig } from '@adonisjs/core/app'
+﻿import { defineConfig } from '@adonisjs/core/app'
 
 export default defineConfig({
   /*
@@ -57,6 +57,7 @@ export default defineConfig({
   |
   */
   preloads: [
+    () => import('#services/tracer'),
     () => import('#start/routes'),
     () => import('#start/kernel'),
     {

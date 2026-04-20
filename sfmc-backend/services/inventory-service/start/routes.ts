@@ -35,6 +35,9 @@ router.get('/health', async ({ response }: HttpContext) => {
 router.group(() => {
   router.get('/', [() => import('#controllers/warehouses_controller'), 'index'])
   router.get('/:id', [() => import('#controllers/warehouses_controller'), 'show'])
+  router.post('/', [() => import('#controllers/warehouses_controller'), 'create'])
+  router.put('/:id', [() => import('#controllers/warehouses_controller'), 'update'])
+  router.delete('/:id', [() => import('#controllers/warehouses_controller'), 'destroy'])
 }).prefix('/api/v1/warehouses')
 
 // Stocks

@@ -7,11 +7,14 @@ import ProcessedEvent from '#models/processed_event'
 import { canTransition, InvalidTransitionError } from '#services/order_state_machine'
 import { publishEvent } from '#services/rabbitmq'
 import { checkAvailability } from '#services/inventory_client'
+import { fetchCustomerEmail } from '#services/customer_contact'
 import type { DomainEvent } from '@sfmc/shared-types'
 import {
   type OrderCreatedPayload,
   type OrderCancelledPayload,
   type OrderValidatedPayload,
+  type OrderShippedPayload,
+  type OrderDeliveredPayload,
 } from '@sfmc/event-contracts'
 
 export const SERVICE_NAME = 'order-service'
@@ -146,6 +149,41 @@ export async function transitionStatus(
   }
   order.status = to
   await order.save()
+
+  if (to === 'SHIPPED') {
+    const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
+    const payload: OrderShippedPayload = {
+      orderId: order.id,
+      customerId: order.customerId,
+      customerEmail,
+      shippedAt: new Date().toISOString(),
+    }
+    await publishEvent(
+      createEvent(
+        'order.shipped',
+        payload as unknown as Record<string, unknown>,
+        SERVICE_NAME,
+        order.id
+      )
+    )
+  } else if (to === 'DELIVERED') {
+    const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
+    const payload: OrderDeliveredPayload = {
+      orderId: order.id,
+      customerId: order.customerId,
+      customerEmail,
+      deliveredAt: new Date().toISOString(),
+    }
+    await publishEvent(
+      createEvent(
+        'order.delivered',
+        payload as unknown as Record<string, unknown>,
+        SERVICE_NAME,
+        order.id
+      )
+    )
+  }
+
   return order
 }
 
@@ -167,9 +205,11 @@ export async function cancelOrder(orderId: string, reason = 'manual_cancellation
     payload: { priorStatus } as Record<string, unknown>,
   })
 
+  const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
   const payload: OrderCancelledPayload = {
     orderId: order.id,
     customerId: order.customerId,
+    customerEmail,
     reason,
     lines: order.lines.map((l) => ({ productId: l.productId, quantity: Number(l.quantity) })),
   }
@@ -199,9 +239,11 @@ export async function validateOrder(orderId: string, sagaId?: string): Promise<O
     payload: null,
   })
 
+  const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
   const payload: OrderValidatedPayload = {
     orderId: order.id,
     customerId: order.customerId,
+    customerEmail,
     totalAmount: Number(order.totalAmount),
   }
   await publishEvent(
@@ -234,9 +276,11 @@ export async function cancelOrderFromSaga(
     payload: { reason } as Record<string, unknown>,
   })
 
+  const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
   const payload: OrderCancelledPayload = {
     orderId: order.id,
     customerId: order.customerId,
+    customerEmail,
     reason,
   }
   await publishEvent(

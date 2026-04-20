@@ -9,6 +9,15 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
 
+  redis:
+    image: redis:7-alpine
+    container_name: sfmc-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   auth-db:
     image: postgres:15
     container_name: sfmc-auth-db
@@ -127,3 +136,4 @@ volumes:
   billing_db_data:
   notification_db_data:
   reporting_db_data:
+  redis_data:

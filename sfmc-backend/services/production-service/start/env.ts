@@ -24,5 +24,6 @@ export default await Env.create(new URL('../', import.meta.url), {
   DB_DATABASE: Env.schema.string(),
   DB_SSL: Env.schema.boolean.optional(),
   RABBITMQ_URL: Env.schema.string(),
+  PRODUCT_SERVICE_URL: Env.schema.string.optional(),
 })
 

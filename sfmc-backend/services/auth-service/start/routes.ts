@@ -30,6 +30,9 @@ router.get('/health', async ({ response }: HttpContext) => {
 
 router
   .group(() => {
+    router.post('/register', [() => import('#controllers/auth_controller'), 'register']).use(
+      middleware.throttle()
+    )
     router.post('/login', [() => import('#controllers/auth_controller'), 'login']).use(
       middleware.throttle()
     )

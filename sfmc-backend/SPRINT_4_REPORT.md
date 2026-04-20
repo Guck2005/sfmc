@@ -177,3 +177,205 @@ curl -X POST -H "Content-Type: application/json" \
 ---
 
 **Sprint 4 clôturé — plateforme prête pour staging / production.**
+
+---
+
+## 7. Finalisation production (post-sprint)
+
+Cette section documente les lots de **finalisation production** livrés après
+clôture du Sprint 4 afin de lever les blocants « haute priorité » et
+d'apurer la dette technique listée en §5.
+
+### BLOC 1 — Blocants production (haute priorité)
+
+#### 1.1 Rate limiter Redis (distribué)
+
+Remplacement du rate limiter in-memory (qui ne tenait pas en multi-pod
+Kubernetes) par une implémentation Redis.
+
+- `services/auth-service/app/services/rate_limiter.ts` (nouveau)
+  - Client `ioredis` singleton, `INCR` + `EXPIRE` atomique, fenêtre 15 min / 5 req.
+  - Stratégie **fail-open** si Redis indisponible (log warning, `allowed=true`).
+  - Helpers `resetRateLimit` / `closeRateLimiter` pour les tests.
+- `app/middleware/throttle_middleware.ts` : délègue à `hitRateLimit`, ajoute
+  les headers `X-RateLimit-Limit/Remaining` et `Retry-After` sur 429.
+- `start/env.ts` + `.env.example` : nouvelle variable `REDIS_URL`.
+- `docker-compose.yml` / `docker-compose.prod.yml` : service `redis:7-alpine`
+  + volume `redis_data` + dépendance `auth-service`.
+- `infra/k8s/redis-deployment.yaml` (nouveau) : Deployment + PVC 1Gi + Service
+  ClusterIP + probes `redis-cli ping`.
+- `infra/k8s/auth-service-deployment.yaml` : ajout de la var `REDIS_URL`.
+- `tests/unit/rate_limiter.spec.ts` (nouveau) : `FakeRedis` pour isoler la
+  logique, vérifie le comportement 5/6 et le calcul de `retryAfterSeconds`.
+
+#### 1.2 CI/CD GitHub Actions (monorepo)
+
+- `.github/workflows/ci.yml` (nouveau) — workflow complet monorepo :
+  - `build-test` : matrice sur les 9 services (ci → lint → build → test unit).
+  - `smoke-test` : infra Docker Compose → `start_all_services.sh` → `smoke_test.sh`.
+  - `docker-build` : build + push des 9 images vers **GHCR** (sur `push main`).
+  - `deploy` : job manuel (`workflow_dispatch`) qui substitue les secrets via
+    `apply-secrets.sh` puis `kubectl apply` les manifestes K8s.
+- `smoke_test.sh` (nouveau) : portage bash du script PowerShell (health,
+  headers OWASP, validation 429 du rate limiter Redis).
+- `scripts/start_all_services.sh` / `stop_all_services.sh` (nouveaux) :
+  orchestration locale et CI des 9 services (migrations + serve en arrière-plan,
+  suivi de PIDs dans `/tmp/sfmc-pids`).
+- `README.md` : nouvelle section « CI/CD (GitHub Actions) » listant les
+  secrets requis (`JWT_SECRET_CI`, `DB_PASSWORD_CI`, `APP_KEY_CI`,
+  `GHCR_TOKEN`, `KUBECONFIG`).
+
+#### 1.3 Secrets Kubernetes via CI/CD
+
+- `infra/k8s/secret.yaml` transformé en template `stringData` avec placeholders
+  `${JWT_SECRET}` / `${DB_PASSWORD}` / `${APP_KEY}`.
+- `infra/k8s/apply-secrets.sh` (nouveau) : `envsubst` + `kubectl apply`,
+  création du namespace `sfmc`, validation des variables requises, cleanup.
+- `infra/k8s/README.md` : procédure secrets (manuel + GitHub Actions) et
+  rotation.
+
+### BLOC 2 — Suppression des stubs
+
+#### 2.1 Email Brevo SMTP — tests
+
+- `dispatcher.ts` : expose `__setTransporterForTest()` pour permettre
+  l'injection d'un transporter Nodemailer mocké sans toucher au singleton.
+- `tests/unit/dispatcher.spec.ts` (nouveau) : teste `sendEmail` avec un
+  transporter factice, couvre les cas succès + erreur.
+
+#### 2.2 SMS Brevo REST (réel)
+
+- `dispatcher.ts` → `sendSms()` : appel HTTP POST `fetch` sur
+  `https://api.brevo.com/v3/transactionalSMS/sms` avec `BREVO_API_KEY`,
+  sender `BREVO_SMS_SENDER`, gestion du code retour et logs structurés.
+- `start/env.ts` / `.env.example` / `.env` : variables `BREVO_API_KEY` et
+  `BREVO_SMS_SENDER` ajoutées (optionnelles côté schema).
+
+#### 2.3 PDF facture réel (pdfkit)
+
+- `services/billing-service/app/services/pdf_invoice.ts` (nouveau) :
+  génération PDF via `pdfkit` — branding SFMC Bénin, en-tête facture,
+  bloc client/commande, ligne article (commande), totaux, conditions de
+  paiement. Retourne un `Buffer`.
+- `app/controllers/invoices_controller.ts` → `pdf()` : utilise
+  `buildInvoicePdf`, définit `Content-Type: application/pdf`,
+  `Content-Disposition`, `Content-Length`.
+- `package.json` : `pdfkit` + `@types/pdfkit`.
+- `tests/unit/pdf_invoice.spec.ts` (nouveau) : vérifie le magic header `%PDF`
+  et la taille > 1 Ko sur une facture fake (payments query mockée).
+
+#### 2.4 OAuth2 Authorization Code (flux complet)
+
+- `database/migrations/4_create_oauth_authorization_codes_table.ts`
+  (nouveau) : table `oauth_authorization_codes` (`code` unique, `client_id`,
+  `redirect_uri`, `user_id`, `scope`, `expires_at`, `used`, `used_at`).
+- `app/models/oauth_authorization_code.ts` (nouveau) : modèle Lucid + getter
+  `isExpired`.
+- `app/controllers/auth_controller.ts` :
+  - `oauthAuthorize` : validation `client_id` / `redirect_uri` /
+    `response_type=code`, génération d'un `code` (32 octets hex, TTL 10 min),
+    redirection 302 vers `redirect_uri?code=...&state=...`.
+  - `oauthToken` : validation complète (`grant_type`, client secret,
+    redirect URI, code non utilisé non expiré), marquage `used`, émission
+    du JWT `access_token`.
+- `tests/unit/oauth_flow.spec.ts` (nouveau) : couvre le getter `isExpired`.
+
+### BLOC 3 — Fiabilité événementielle
+
+#### 3.1 RabbitMQ StatefulSet + PVC
+
+- `infra/k8s/rabbitmq-pvc.yaml` (nouveau) : PVC `rabbitmq-data` 5Gi
+  `ReadWriteOnce`.
+- `infra/k8s/rabbitmq-statefulset.yaml` (nouveau) : headless Service
+  `rabbitmq-headless` + Service `rabbitmq` + `StatefulSet` (image
+  `rabbitmq:3-management-alpine`, mount `/var/lib/rabbitmq`, probes
+  `rabbitmq-diagnostics`, `volumeClaimTemplates`).
+- `infra/k8s/rabbitmq.yaml` (ancien Deployment) supprimé.
+
+#### 3.2 Monitoring DLQ + alerting
+
+- `infra/k8s/prometheus-configmap.yaml` (nouveau) :
+  - `prometheus.yml` : scrape `sfmc-services` (annotations K8s), `rabbitmq`
+    (port `15692`), `redis` (exporter `9121`).
+  - `alerts.yml` : 4 règles — `ServiceDown` (critical, 2 min),
+    `HighLatencyP95` (warning, p95 > 2 s, 5 min), `DLQNotEmpty` (critical,
+    `sfmc.dlq > 0`, 5 min), `QueueSaturation` (warning, > 1000 ready, 10 min).
+- `infra/monitoring/grafana-dashboard.json` (nouveau) : dashboard
+  « SFMC Bénin — Plateforme microservices » — Golden Signals (RPS, erreurs,
+  latence p95, CPU/RAM) + section RabbitMQ (DLQ backlog avec seuils colorés,
+  ready per queue, publish/deliver rate, unacked).
+- `infra/monitoring/README.md` (nouveau) : import dashboard, déploiement
+  Prometheus, scénario manuel de test DLQ.
+
+### BLOC 4 — Observabilité avancée
+
+#### 4.1 OpenTelemetry (tracing distribué)
+
+- `packages/telemetry/` (nouveau workspace `@sfmc/telemetry`) :
+  - `initTracer(serviceName)` → `NodeSDK` + `OTLPTraceExporter`
+    (`OTEL_EXPORTER_OTLP_ENDPOINT` ou fallback Jaeger), auto-instrumentations
+    Node (sauf `fs`), resources `service.name/namespace/version`.
+  - Helpers `extractContext`, `injectContext`, `withConsumerSpan` pour la
+    propagation W3C traceparent dans les consumers RabbitMQ.
+- Dans chacun des 9 services :
+  - `app/services/tracer.ts` : `initTracer('<service-name>')`.
+  - `adonisrc.ts` : ajoute `() => import('#services/tracer')` en **première**
+    entrée du tableau `preloads` (avant tout autre import).
+  - `.env.example` : `OTEL_EXPORTER_OTLP_ENDPOINT=` et
+    `OTEL_SERVICE_NAMESPACE=sfmc`.
+- `infra/k8s/jaeger-deployment.yaml` (nouveau) : Jaeger all-in-one (UI 16686,
+  OTLP gRPC 4317 / HTTP 4318) + Service.
+
+#### 4.2 GraphQL Subscriptions (reporting-service)
+
+- `app/graphql/pubsub.ts` (nouveau) : Pub/Sub in-process (Node `EventEmitter`),
+  topics `ORDER_STATUS_UPDATED` et `KPI_UPDATED`, `asyncIterator` conforme
+  à `graphql-ws`.
+- `app/graphql/schema.ts` : passage à `makeExecutableSchema`, nouveaux types
+  `OrderStatusEvent` + root `Subscription` (`orderStatusUpdated`,
+  `kpiUpdated`).
+- `start/graphql_ws.ts` (nouveau) : récupère le `getNodeServer()` AdonisJS et
+  attache `WebSocketServer` sur `/graphql` via `useServer` de `graphql-ws`
+  (pas de nouveau port exposé).
+- `adonisrc.ts` : preload supplémentaire `#start/graphql_ws` (environnement `web`).
+- `app/listeners/reporting_listeners.ts` : après chaque projection
+  (`order.*`, `invoice.created`, `production.*`), publication sur
+  `ORDER_STATUS_UPDATED` et/ou `KPI_UPDATED`.
+- `SUBSCRIPTIONS.md` (nouveau) : doc frontend — schéma, URL
+  `ws://host:3009/graphql`, exemple `graphql-ws createClient`, limites
+  (pub/sub in-process : sticky session ou migration Redis si multi-pod).
+
+### Vérifications
+
+```bash
+# Typecheck des 9 services
+for svc in auth user product inventory order production billing notification reporting ; do
+  (cd services/${svc}-service && npx tsc --noEmit)
+done
+
+# Tests unitaires ajoutés
+cd services/auth-service && node ace test unit --files="tests/unit/rate_limiter.spec.ts"
+cd services/auth-service && node ace test unit --files="tests/unit/oauth_flow.spec.ts"
+cd services/notification-service && node ace test unit --files="tests/unit/dispatcher.spec.ts"
+cd services/billing-service && node ace test unit --files="tests/unit/pdf_invoice.spec.ts"
+```
+
+### Tableau récapitulatif (dette du §5 avant/après)
+
+| Item | Avant sprint 4 | Après finalisation |
+|---|---|---|
+| Rate limiter → Redis | ❌ in-memory | ✅ Redis distribué (Deployment K8s + PVC) |
+| Secrets K8s réels | ❌ placeholders | ✅ template + `apply-secrets.sh` via CI |
+| RabbitMQ persistant K8s | ❌ Deployment sans volume | ✅ StatefulSet + PVC 5Gi |
+| DLQ monitoring / alerting | ❌ | ✅ Prometheus alerts + dashboard Grafana |
+| GraphQL subscriptions | ❌ | ✅ `graphql-ws` sur `/graphql`, 2 topics |
+| OpenTelemetry tracing | ❌ | ✅ `@sfmc/telemetry` + Jaeger K8s |
+| Email/SMS Brevo | ⚠️ stub | ✅ SMTP réel + REST SMS réel |
+| PDF facture | ⚠️ stub | ✅ `pdfkit` branding SFMC |
+| OAuth2 Authorization Code | ⚠️ stub | ✅ flux complet + migration + test |
+| CI/CD GitHub Actions | ❌ | ✅ build / smoke / docker / deploy |
+
+**Finalisation production livrée — plateforme prête pour un déploiement
+Kubernetes multi-réplica avec rate limiting cohérent, secrets gérés par CI,
+files RabbitMQ persistantes, observabilité tracée bout en bout et UI
+temps réel sur le dashboard reporting.**

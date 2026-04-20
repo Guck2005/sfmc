@@ -57,10 +57,15 @@ export default defineConfig({
   |
   */
   preloads: [
+    () => import('#services/tracer'),
     () => import('#start/routes'),
     () => import('#start/kernel'),
     {
       file: () => import('#start/rabbitmq'),
+      environment: ['web'],
+    },
+    {
+      file: () => import('#start/graphql_ws'),
       environment: ['web'],
     },
   ],

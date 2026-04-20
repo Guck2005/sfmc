@@ -7,9 +7,12 @@ export async function initRabbitMQ() {
   const {
     onOrderValidated,
     onOrderShipped,
+    onOrderDelivered,
     onOrderCancelled,
+    onProductionCompleted,
     onProductionQualityFailed,
-    onInventoryCriticalStock,
+    onInventoryCritical,
+    onBillingInvoiceCreated,
   } = await import('#listeners/notification_listeners')
 
   await consume({
@@ -19,15 +22,27 @@ export async function initRabbitMQ() {
   })
 
   await consume({
+    queue: 'notif.order_shipped_q',
+    routingKeys: ['order.shipped'],
+    handler: onOrderShipped,
+  })
+
+  await consume({
+    queue: 'notif.order_delivered_q',
+    routingKeys: ['order.delivered'],
+    handler: onOrderDelivered,
+  })
+
+  await consume({
     queue: 'notif.order_cancelled_q',
     routingKeys: ['order.cancelled'],
     handler: onOrderCancelled,
   })
 
   await consume({
-    queue: 'notif.order_shipped_q',
-    routingKeys: ['order.shipped'],
-    handler: onOrderShipped,
+    queue: 'notif.production_completed_q',
+    routingKeys: ['production.completed'],
+    handler: onProductionCompleted,
   })
 
   await consume({
@@ -37,9 +52,15 @@ export async function initRabbitMQ() {
   })
 
   await consume({
-    queue: 'notif.critical_stock_q',
-    routingKeys: ['inventory.critical_stock'],
-    handler: onInventoryCriticalStock,
+    queue: 'notif.inventory_critical_q',
+    routingKeys: ['inventory.critical'],
+    handler: onInventoryCritical,
+  })
+
+  await consume({
+    queue: 'notif.invoice_created_q',
+    routingKeys: ['billing.invoice_created'],
+    handler: onBillingInvoiceCreated,
   })
 }
 

@@ -1,0 +1,3 @@
+# Placez ici les packs Lottieflow (business, analytics, logistics).
+# Chaque fichier JSON peut être importé directement :
+#   import analyticsAnim from '@/assets/animations/lottieflow/analytics.json'

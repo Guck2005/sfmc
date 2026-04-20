@@ -57,6 +57,7 @@ export default defineConfig({
   |
   */
   preloads: [
+    () => import('#services/tracer'),
     () => import('#start/routes'),
     () => import('#start/kernel'),
     {
@@ -84,6 +85,11 @@ export default defineConfig({
       {
         files: ['tests/functional/**/*.spec(.ts|.js)'],
         name: 'functional',
+        timeout: 30000,
+      },
+      {
+        files: ['tests/integration/**/*.spec(.ts|.js)'],
+        name: 'integration',
         timeout: 30000,
       },
     ],

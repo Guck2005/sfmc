@@ -13,17 +13,24 @@ export type EventType =
   | 'order.validated'
   | 'order.cancelled'
   | 'order.shipped'
+  | 'order.delivered'
   | 'order.production_required'
   // Production events
   | 'production.started'
   | 'production.completed'
   | 'production.quality_failed'
+  | 'production.status_changed'
   // Inventory events
   | 'inventory.reserved'
   | 'inventory.reservation_failed'
   | 'inventory.critical'
   // Billing events
   | 'billing.invoice_created'
+  // Auth / User events
+  | 'user.created'
+  | 'user.updated'
+  | 'user.deleted'
+  | 'user.role_changed'
 
 export interface OrderCreatedPayload {
   orderId: string
@@ -35,14 +42,39 @@ export interface OrderCreatedPayload {
 export interface OrderValidatedPayload {
   orderId: string
   customerId: string
+  customerEmail?: string
   totalAmount: number
 }
 
 export interface OrderCancelledPayload {
   orderId: string
   customerId: string
+  customerEmail?: string
   reason?: string
   lines?: Array<{ productId: string; quantity: number }>
+}
+
+export interface OrderShippedPayload {
+  orderId: string
+  customerId: string
+  customerEmail?: string
+  shippedAt: string
+}
+
+export interface OrderDeliveredPayload {
+  orderId: string
+  customerId: string
+  customerEmail?: string
+  deliveredAt: string
+}
+
+export interface InvoiceCreatedPayload {
+  invoiceId: string
+  orderId: string
+  customerId: string | null
+  customerEmail?: string
+  amount: number
+  currency: string
 }
 
 export interface InventoryReservedPayload {
@@ -72,6 +104,39 @@ export interface ProductionCompletedPayload {
   productId: string
   warehouseId?: string
   quantity: number
+}
+
+export interface ProductionStatusChangedPayload {
+  productionOrderId: string
+  orderId?: string
+  productId: string
+  machineId: string | null
+  fromStatus: string | null
+  toStatus: string
+  changedAt: string
+}
+
+export interface UserCreatedPayload {
+  userId: string
+  email: string
+  fullName: string | null
+  role: 'ADMIN' | 'OPERATOR' | 'CLIENT'
+}
+
+export interface UserUpdatedPayload {
+  userId: string
+  changes: Partial<{ email: string; fullName: string | null; role: string; isActive: boolean }>
+}
+
+export interface UserDeletedPayload {
+  userId: string
+}
+
+export interface UserRoleChangedPayload {
+  userId: string
+  oldRole: 'ADMIN' | 'OPERATOR' | 'CLIENT'
+  newRole: 'ADMIN' | 'OPERATOR' | 'CLIENT'
+  changedBy: string | null
 }
 
 export function createEvent<T extends Record<string, unknown>>(

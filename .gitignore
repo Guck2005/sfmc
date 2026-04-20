@@ -13,5 +13,8 @@ dist/
 *.log
 npm-debug.log*
 
+# Rapport généré par smoke_test_cu
+smoke_report.txt
+
 # Claude
 .claude/
