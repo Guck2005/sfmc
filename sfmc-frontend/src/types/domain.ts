@@ -43,7 +43,6 @@ export interface Stock {
   quantity: number
   reserved: number
   threshold: number
-  stockType: 'RAW_MATERIAL' | 'FINISHED_PRODUCT' | 'WORK_IN_PROGRESS'
   createdAt: string
   updatedAt: string
 }
@@ -67,6 +66,22 @@ export interface StockMovement {
   date?: string
 }
 
+/** Réception produit fini après production — en attente de choix d’entrepôt. */
+export interface PendingStockReception {
+  id: string
+  productionOrderId: string
+  productId: string
+  quantity: number
+  status: 'PENDING' | 'CONFIRMED' | 'CANCELLED'
+  warehouseId: string | null
+  confirmedQuantity: number | null
+  confirmedByUserId: string | null
+  confirmedAt: string | null
+  sourceEventId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface CheckAvailabilityResult {
   available: boolean
   currentStock: number
@@ -83,7 +98,6 @@ export interface CriticalStockGqlRow {
   id: string
   productId: string
   warehouseId: string
-  stockType: string
   quantity: number
   reserved: number
   available: number
@@ -135,7 +149,8 @@ export type ProductionStatus =
 
 export interface ProductionOrder {
   id: string
-  orderId: string
+  /** Absent si l’OF est créé sans commande liée. */
+  orderId: string | null
   productId: string
   quantity: number
   status: ProductionStatus

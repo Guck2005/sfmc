@@ -93,9 +93,9 @@ if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
 fi
 
 STOCKS="$(curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" "$INVENTORY_URL/api/v1/stocks")"
-PRODUCT_ID="$(echo "$STOCKS" | jq -r '(.data // .)[] | select(.stockType=="FINISHED_PRODUCT" and (.quantity|tonumber) - (.reserved|tonumber) >= 1) | .productId' | head -n 1)"
+PRODUCT_ID="$(echo "$STOCKS" | jq -r '(.data // .)[] | select((.quantity|tonumber) - (.reserved|tonumber) >= 1) | .productId' | head -n 1)"
 if [ -z "$PRODUCT_ID" ] || [ "$PRODUCT_ID" = "null" ]; then
-  echo "!! Aucun produit FINISHED_PRODUCT avec stock > 0 — certaines assertions seront FAIL"
+  echo "!! Aucun produit avec stock disponible > 0 — certaines assertions seront FAIL"
 fi
 
 # =============================================================================
@@ -229,15 +229,15 @@ NOTIF_CHANNEL="$(jqval "$NOTIFS" '(.data // [])[0].channel // empty')"
 echo ""
 echo "=== 4. CU-02 Production (5) ==="
 
-total_finished() {
+total_stock_qty() {
   local pid="$1"
   curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
     "$INVENTORY_URL/api/v1/stocks?productId=$pid" \
-    | jq '[(.data // [])[] | select(.stockType=="FINISHED_PRODUCT") | (.quantity|tonumber)] | add // 0'
+    | jq '[(.data // [])[] | (.quantity|tonumber)] | add // 0'
 }
 
 if [ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "null" ]; then
-  QTY_BEFORE="$(total_finished "$PRODUCT_ID")"
+  QTY_BEFORE="$(total_stock_qty "$PRODUCT_ID")"
 
   PO_ORDER_REF="$ORDER_ID"
   if [ -z "$PO_ORDER_REF" ]; then
@@ -302,7 +302,7 @@ fi
 QTY_AFTER="0"
 if [ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "null" ]; then
   for i in 1 2 3 4 5; do
-    QTY_AFTER="$(total_finished "$PRODUCT_ID")"
+    QTY_AFTER="$(total_stock_qty "$PRODUCT_ID")"
     if [ "$(awk "BEGIN {print ($QTY_AFTER > $QTY_BEFORE)}")" = "1" ]; then break; fi
     wait_ms 1500
   done

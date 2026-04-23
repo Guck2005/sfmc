@@ -8,7 +8,7 @@ import { request as undiciRequest } from 'undici'
  * d'exécution via leurs endpoints HTTP.
  *
  * Scénario :
- *   1. Lister les stocks FINISHED_PRODUCT existants.
+ *   1. Lister les stocks existants.
  *   2. Choisir un stock avec `quantity - reserved > 0`.
  *   3. Relever le threshold pour forcer `available < threshold` après un OUT de 1.
  *   4. POST /movements type=OUT quantity=1 → inventory-service publie `inventory.critical`.
@@ -110,9 +110,7 @@ async function countNotifs(type: string, baselineCount: number): Promise<number>
 test.group('CU-03 — mouvement OUT sous seuil → inventory.critical → notifications EMAIL', () => {
   test('déclenche au moins 1 notification INVENTORY_CRITICAL', async ({ assert }) => {
     const stocks = await listStocks()
-    const candidate = stocks.find(
-      (s) => s.stockType === 'FINISHED_PRODUCT' && Number(s.quantity) - Number(s.reserved) >= 1
-    )
+    const candidate = stocks.find((s) => Number(s.quantity) - Number(s.reserved) >= 1)
     if (!candidate) {
       // Stack partiellement indisponible — test non applicable
       return

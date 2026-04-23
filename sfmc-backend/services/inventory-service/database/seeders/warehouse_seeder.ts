@@ -4,7 +4,6 @@ import Warehouse from '#models/warehouse'
 import Stock from '#models/stock'
 import StockMovement, { type MovementType } from '#models/stock_movement'
 import db from '@adonisjs/lucid/services/db'
-import type { StockType } from '#models/stock'
 
 /** Même UUIDs que `product-service/database/seeders/product_seeder.ts`. */
 const DEMO_PRODUCT_IDS = [
@@ -24,7 +23,6 @@ type WarehouseSide = 'hub' | 'platform'
 
 type DemoLine = {
   productId: (typeof DEMO_PRODUCT_IDS)[number]
-  stockType: StockType
   hub: { quantity: number; reserved: number; threshold: number }
   platform: { quantity: number; reserved: number; threshold: number }
 }
@@ -38,62 +36,52 @@ type DemoLine = {
 const DEMO_STOCK_LINES: DemoLine[] = [
   {
     productId: '11111111-1111-4111-a111-111111111101',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 2480, reserved: 0, threshold: 420 },
     platform: { quantity: 520, reserved: 0, threshold: 140 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111102',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 1820, reserved: 120, threshold: 360 },
     platform: { quantity: 380, reserved: 0, threshold: 100 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111103',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 920, reserved: 180, threshold: 200 },
     platform: { quantity: 140, reserved: 24, threshold: 40 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111104',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 640, reserved: 85, threshold: 140 },
     platform: { quantity: 95, reserved: 10, threshold: 35 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111105',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 410, reserved: 0, threshold: 100 },
     platform: { quantity: 72, reserved: 0, threshold: 28 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111106',
-    stockType: 'FINISHED_PRODUCT',
     hub: { quantity: 15600, reserved: 2100, threshold: 2500 },
     platform: { quantity: 4200, reserved: 480, threshold: 800 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111107',
-    stockType: 'FINISHED_PRODUCT',
     hub: { quantity: 11100, reserved: 1450, threshold: 1800 },
     platform: { quantity: 3100, reserved: 360, threshold: 600 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111108',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 186, reserved: 0, threshold: 32 },
     platform: { quantity: 48, reserved: 0, threshold: 14 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111109',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 118, reserved: 22, threshold: 40 },
     // Disponible 26 < seuil 28 → alerte stock critique en démo
     platform: { quantity: 34, reserved: 8, threshold: 28 },
   },
   {
     productId: '11111111-1111-4111-a111-111111111110',
-    stockType: 'RAW_MATERIAL',
     hub: { quantity: 132, reserved: 0, threshold: 30 },
     platform: { quantity: 41, reserved: 0, threshold: 14 },
   },
@@ -131,7 +119,6 @@ export default class extends BaseSeeder {
           {
             productId: line.productId,
             warehouseId: warehouse.id,
-            stockType: line.stockType,
             quantity: snap.quantity,
             reserved: snap.reserved,
             threshold: snap.threshold,

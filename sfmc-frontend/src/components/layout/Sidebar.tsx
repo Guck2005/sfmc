@@ -16,6 +16,7 @@ import {
   LineChart,
   Shield,
   History,
+  PackageCheck,
   // SlidersHorizontal, // réservé entrée « Outils saga » (masquée)
   // Braces, // réservé entrée « GraphQL » (masquée)
   ClipboardList,
@@ -91,6 +92,13 @@ const NAV_GROUPS: NavGroupDef[] = [
         to: '/inventory/movements',
         label: 'Mouvements',
         icon: History,
+        roles: ['ADMIN', 'OPERATOR'],
+        end: true,
+      },
+      {
+        to: '/inventory/pending-receptions',
+        label: 'Réceptions en attente',
+        icon: PackageCheck,
         roles: ['ADMIN', 'OPERATOR'],
         end: true,
       },

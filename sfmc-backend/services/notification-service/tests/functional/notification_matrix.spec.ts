@@ -4,7 +4,7 @@ import ProcessedEvent from '#models/processed_event'
 import {
   onOrderShipped,
   onOrderDelivered,
-  onProductionCompleted,
+  onInventoryPendingReception,
   onInventoryCritical,
   onBillingInvoiceCreated,
 } from '#listeners/notification_listeners'
@@ -55,17 +55,18 @@ test.group('Notification Matrix (Email-only)', (group) => {
     assert.lengthOf(notifs, 1)
   })
 
-  test('production.completed → email to logistics', async ({ assert }) => {
+  test('inventory.pending_reception → email to logistics', async ({ assert }) => {
     const eventId = crypto.randomUUID()
     const payload = {
+      pendingEntryId: crypto.randomUUID(),
       productionOrderId: crypto.randomUUID(),
-      productId: 'CIMENT-CEMII-425',
+      productId: crypto.randomUUID(),
       quantity: 50,
     }
 
-    await onProductionCompleted({ id: eventId, type: 'production.completed', payload })
+    await onInventoryPendingReception({ id: eventId, type: 'inventory.pending_reception', payload })
 
-    const notifs = await Notification.query().where('type', 'PRODUCTION_COMPLETED')
+    const notifs = await Notification.query().where('type', 'PENDING_STOCK_RECEPTION')
     assert.isAbove(notifs.length, 0)
     assert.equal(notifs[0].channel, 'EMAIL')
   })

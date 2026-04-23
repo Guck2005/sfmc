@@ -4,7 +4,6 @@ import { toast } from 'sonner'
 import { Loader2, SlidersHorizontal, Warehouse as WarehouseIcon } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -113,7 +112,6 @@ export default function InventoryStockLinesPage() {
                 <TableRow>
                   <TableHead>Produit</TableHead>
                   <TableHead>Entrepôt</TableHead>
-                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Quantité</TableHead>
                   <TableHead className="text-right">Réservé</TableHead>
                   <TableHead className="text-right">Disponible</TableHead>
@@ -142,9 +140,6 @@ export default function InventoryStockLinesPage() {
                       </TableCell>
                       <TableCell className="text-sm">
                         {warehouseLabel(s.warehouseId, warehouses)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{s.stockType}</Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">{s.quantity}</TableCell>
                       <TableCell className="text-right font-mono text-muted-foreground">

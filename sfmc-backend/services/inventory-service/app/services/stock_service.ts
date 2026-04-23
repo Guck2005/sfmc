@@ -3,6 +3,7 @@ import StockMovement from '#models/stock_movement'
 import ProcessedEvent from '#models/processed_event'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { publishEvent } from '#services/rabbitmq'
 import type { DomainEvent } from '@sfmc/shared-types'
 import { type InventoryCriticalPayload } from '@sfmc/event-contracts'
@@ -58,54 +59,66 @@ export function isCritical(stock: { quantity: number; reserved: number; threshol
   return computeAvailable(stock) < Number(stock.threshold)
 }
 
-export async function recordMovement(input: MovementInput): Promise<StockMovement> {
-  return await db.transaction(async (trx) => {
-    const stock = await Stock.findOrFail(input.stockId, { client: trx })
-    const qty = Number(input.quantity)
+async function recordMovementWithClient(
+  trx: TransactionClientContract,
+  input: MovementInput
+): Promise<StockMovement> {
+  const stock = await Stock.findOrFail(input.stockId, { client: trx })
+  const qty = Number(input.quantity)
 
-    if (input.type === 'IN') {
-      stock.quantity = Number(stock.quantity) + qty
-    } else if (input.type === 'OUT') {
-      const available = computeAvailable(stock)
-      if (qty > available) {
-        throw new InsufficientStockError(stock.productId, qty, available)
-      }
-      stock.quantity = Number(stock.quantity) - qty
-    } else if (input.type === 'ADJUSTMENT') {
-      stock.quantity = qty
+  if (input.type === 'IN') {
+    stock.quantity = Number(stock.quantity) + qty
+  } else if (input.type === 'OUT') {
+    const available = computeAvailable(stock)
+    if (qty > available) {
+      throw new InsufficientStockError(stock.productId, qty, available)
     }
-    await stock.useTransaction(trx).save()
+    stock.quantity = Number(stock.quantity) - qty
+  } else if (input.type === 'ADJUSTMENT') {
+    stock.quantity = qty
+  }
+  await stock.useTransaction(trx).save()
 
-    const movement = await StockMovement.create(
-      {
+  const movement = await StockMovement.create(
+    {
+      stockId: stock.id,
+      type: input.type,
+      quantity: qty,
+      origin: input.origin,
+      referenceId: input.referenceId ?? null,
+      createdBy: input.createdBy ?? null,
+      date: DateTime.now(),
+    },
+    { client: trx }
+  )
+
+  if (input.type === 'OUT' && isCritical(stock)) {
+    setImmediate(() => {
+      const payload: InventoryCriticalPayload = {
+        productId: stock.productId,
+        warehouseId: stock.warehouseId,
         stockId: stock.id,
-        type: input.type,
-        quantity: qty,
-        origin: input.origin,
-        referenceId: input.referenceId ?? null,
-        createdBy: input.createdBy ?? null,
-        date: DateTime.now(),
-      },
-      { client: trx }
-    )
+        available: computeAvailable(stock),
+        threshold: Number(stock.threshold),
+      }
+      publishEvent(
+        createEvent('inventory.critical', payload as unknown as Record<string, unknown>, SERVICE_NAME)
+      ).catch(() => {})
+    })
+  }
 
-    if (input.type === 'OUT' && isCritical(stock)) {
-      setImmediate(() => {
-        const payload: InventoryCriticalPayload = {
-          productId: stock.productId,
-          warehouseId: stock.warehouseId,
-          stockId: stock.id,
-          available: computeAvailable(stock),
-          threshold: Number(stock.threshold),
-        }
-        publishEvent(
-          createEvent('inventory.critical', payload as unknown as Record<string, unknown>, SERVICE_NAME)
-        ).catch(() => {})
-      })
-    }
+  return movement
+}
 
-    return movement
-  })
+/** @param trx Si fourni, exécute dans cette transaction (pas de transaction imbriquée). */
+export async function recordMovement(
+  input: MovementInput,
+  trx?: TransactionClientContract
+): Promise<StockMovement> {
+  if (trx) {
+    return await recordMovementWithClient(trx, input)
+  }
+  return await db.transaction(async (inner) => recordMovementWithClient(inner, input))
 }
 
 export async function reserveForOrder(params: {
@@ -117,7 +130,6 @@ export async function reserveForOrder(params: {
     for (const line of params.lines) {
       const stock = await Stock.query({ client: trx })
         .where('product_id', line.productId)
-        .where('stock_type', 'FINISHED_PRODUCT')
         .orderBy('quantity', 'desc')
         .first()
       if (!stock) {
@@ -143,7 +155,6 @@ export async function releaseForOrder(params: {
     for (const line of params.lines) {
       const stock = await Stock.query({ client: trx })
         .where('product_id', line.productId)
-        .where('stock_type', 'FINISHED_PRODUCT')
         .orderBy('reserved', 'desc')
         .first()
       if (!stock) continue
@@ -172,20 +183,18 @@ export async function markEventProcessed(eventId: string, eventType: string): Pr
   }
 }
 
-export async function incrementFinishedStock(params: {
+export async function incrementProductStock(params: {
   productId: string
   warehouseId?: string
   quantity: number
   referenceId?: string
 }): Promise<Stock> {
   return await db.transaction(async (trx) => {
-    const query = Stock.query({ client: trx })
-      .where('product_id', params.productId)
-      .where('stock_type', 'FINISHED_PRODUCT')
+    const query = Stock.query({ client: trx }).where('product_id', params.productId)
     if (params.warehouseId) query.where('warehouse_id', params.warehouseId)
     let stock = await query.first()
     if (!stock) {
-      throw new Error(`No FINISHED_PRODUCT stock for product ${params.productId}`)
+      throw new Error(`Aucune ligne de stock pour le produit ${params.productId}`)
     }
     stock.quantity = Number(stock.quantity) + Number(params.quantity)
     await stock.useTransaction(trx).save()

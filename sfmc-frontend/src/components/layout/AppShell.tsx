@@ -10,6 +10,7 @@ const TITLES: Record<string, string> = {
   '/inventory/warehouses': 'Stocks — Entrepôts',
   '/inventory/stock-lines': 'Stocks — Lignes',
   '/inventory/movements': 'Stocks — Mouvements',
+  '/inventory/pending-receptions': 'Stocks — Réceptions en attente',
   '/inventory/tools': 'Stocks — Outils avancés',
   '/inventory/graphql': 'Stocks — Lecture avancée',
   '/inventory': 'Gestion des stocks',

@@ -35,7 +35,7 @@ async function findAvailableProduct() {
   })
   const body = (await res.body.json()) as any
   const stocks = body.data || body
-  const prod = stocks.find((s: any) => s.stockType === 'FINISHED_PRODUCT' && s.quantity > s.reserved)
+  const prod = stocks.find((s: any) => Number(s.quantity) > Number(s.reserved))
   return prod?.product || prod?.productId
 }
 

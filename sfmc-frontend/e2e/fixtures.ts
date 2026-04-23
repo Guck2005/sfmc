@@ -109,7 +109,7 @@ export async function loginAs(
   return { token, userId: user.id }
 }
 
-/** Retourne le premier produit fini ayant du stock disponible ≥ `minQty`. */
+/** Retourne le premier produit ayant du stock disponible ≥ `minQty`. */
 export async function findAvailableFinishedProduct(
   request: APIRequestContext,
   minQty = 1
@@ -119,15 +119,10 @@ export async function findAvailableFinishedProduct(
   const stocksBody = await stocksRes.json()
   const stocks = (stocksBody.data ?? stocksBody ?? []) as Array<{
     productId: string
-    stockType: string
     quantity: number | string
     reserved: number | string
   }>
-  const candidate = stocks.find(
-    (s) =>
-      s.stockType === 'FINISHED_PRODUCT' &&
-      Number(s.quantity) - Number(s.reserved) >= minQty
-  )
+  const candidate = stocks.find((s) => Number(s.quantity) - Number(s.reserved) >= minQty)
   if (!candidate) return null
 
   const productRes = await request.get(`/api/v1/products/${candidate.productId}`, {

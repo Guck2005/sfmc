@@ -25,6 +25,7 @@ import type {
   Stock,
   StockAlert,
   StockMovement,
+  PendingStockReception,
   User,
   Warehouse,
 } from '@/types/domain'
@@ -182,6 +183,18 @@ export const inventoryService = {
       .then((rows) => (Array.isArray(rows) ? rows : [])),
   updateThreshold: (id: string, threshold: number) =>
     api.put<Envelope<Stock>>(`/stocks/${id}/threshold`, { threshold }).then(unwrap<Stock>()),
+  listPendingReceptions: () =>
+    api
+      .get<Envelope<PendingStockReception[]>>('/stocks/pending-receptions')
+      .then(unwrap<PendingStockReception[]>())
+      .then((rows) => (Array.isArray(rows) ? rows : [])),
+  confirmPendingReception: (id: string, body: { warehouseId: string; quantity?: number }) =>
+    api
+      .post<Envelope<{ pending: PendingStockReception; stock: Stock }>>(
+        `/stocks/pending-receptions/${encodeURIComponent(id)}/confirm`,
+        body
+      )
+      .then(unwrap<{ pending: PendingStockReception; stock: Stock }>()),
   checkAvailability: (payload: { productId: string; quantity: number }) =>
     api
       .post<Envelope<CheckAvailabilityResult>>('/stocks/check-availability', payload)
@@ -232,7 +245,6 @@ export const inventoryGraphql = {
           id
           productId
           warehouseId
-          stockType
           quantity
           reserved
           available
@@ -314,7 +326,7 @@ export const productionService = {
       .then((r) => r.data),
   get: (id: string) =>
     api.get<Envelope<ProductionOrder>>(`/production-orders/${id}`).then(unwrap<ProductionOrder>()),
-  create: (payload: { productId: string; quantity: number; orderId: string }) =>
+  create: (payload: { productId: string; quantity: number; orderId?: string }) =>
     api
       .post<Envelope<ProductionOrder>>('/production-orders', payload)
       .then(unwrap<ProductionOrder>()),

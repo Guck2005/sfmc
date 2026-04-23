@@ -3,12 +3,12 @@ import { consume, publishEvent } from '#services/rabbitmq'
 import {
   isEventProcessed,
   markEventProcessed,
-  incrementFinishedStock,
   reserveForOrder,
   releaseForOrder,
   InsufficientStockError,
   SERVICE_NAME,
 } from '#services/stock_service'
+import { createPendingFromProductionCompleted } from '#services/pending_stock_reception_service'
 import SagaLog from '#models/saga_log'
 import { DateTime } from 'luxon'
 import {
@@ -50,21 +50,33 @@ function createEvent<T extends Record<string, unknown>>(
 }
 
 export async function startInventoryListeners(): Promise<void> {
-  // production.completed → increment FINISHED_PRODUCT stock
+  // production.completed → réception produit fini en attente (choix entrepôt côté UI)
   await consume({
     queue: 'inventory.production.completed',
     routingKeys: ['production.completed'],
     handler: async (event) => {
       if (await dedupe(event.id, event.type)) return
       const payload = event.payload as unknown as ProductionCompletedPayload
-      await incrementFinishedStock({
-        productId: payload.productId,
-        warehouseId: payload.warehouseId,
-        quantity: payload.quantity,
-        referenceId: payload.productionOrderId,
-      })
+      const pending = await createPendingFromProductionCompleted(payload, event.id)
+      await publishEvent(
+        createEvent(
+          'inventory.pending_reception',
+          {
+            pendingEntryId: pending.id,
+            productionOrderId: payload.productionOrderId,
+            productId: payload.productId,
+            quantity: payload.quantity,
+          } as Record<string, unknown>,
+          SERVICE_NAME,
+          undefined,
+          event.metadata?.correlationId ?? crypto.randomUUID()
+        )
+      )
       await markEventProcessed(event.id, event.type)
-      logger.info({ event: event.type, productId: payload.productId }, '[inventory] stock incremented')
+      logger.info(
+        { event: event.type, productId: payload.productId, pendingId: pending.id },
+        '[inventory] pending stock reception created'
+      )
     },
   })
 

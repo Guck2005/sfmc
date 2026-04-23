@@ -74,7 +74,7 @@ try {
     # 3. Récupérer Produit
     Print-Step "3. Récupération d'un produit (Product Service)"
     $ProductsRes = Invoke-RestMethod -Uri "http://localhost:3003/api/v1/products" -Method Get -Headers $Headers
-    $Product = $ProductsRes.data | Where-Object { $_.stockType -eq "FINISHED_PRODUCT" } | Select-Object -First 1
+    $Product = $ProductsRes.data | Select-Object -First 1
     if (-not $Product) {
         $Product = $ProductsRes.data[0] # Fallback
     }

@@ -45,7 +45,8 @@ export async function pickAvailableMachineFor(
 }
 
 export interface PlanInput {
-  orderId: string
+  /** Null si l’OF est créé hors commande (ex. stock libre). */
+  orderId: string | null
   productId: string
   quantity: number
   /** If already known (e.g. from the event payload) we skip the HTTP lookup. */

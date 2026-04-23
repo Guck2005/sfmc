@@ -41,3 +41,36 @@ export async function publishProductionStatusChanged(
     logger.warn({ err, poId: po.id, toStatus }, '[production] failed to publish status_changed')
   }
 }
+
+/**
+ * Émet `production.completed` (réception stock en attente, passage commande READY, reporting, etc.).
+ * À appeler pour tout passage à COMPLETED : contrôle qualité OK ou changement de statut manuel équivalent.
+ */
+export async function publishProductionCompleted(
+  po: ProductionOrder,
+  opts?: { notes?: string | null }
+): Promise<void> {
+  try {
+    await publishEvent({
+      id: randomUUID(),
+      type: 'production.completed',
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      payload: {
+        productionOrderId: po.id,
+        orderId: po.orderId ?? undefined,
+        productId: po.productId,
+        quantity: po.quantity,
+        ...(opts?.notes != null && String(opts.notes).trim() !== ''
+          ? { notes: String(opts.notes).trim() }
+          : {}),
+      },
+      metadata: {
+        sourceService: SERVICE_NAME,
+        correlationId: po.orderId ?? po.id,
+      },
+    } as any)
+  } catch (err) {
+    logger.warn({ err, poId: po.id }, '[production] failed to publish production.completed')
+  }
+}

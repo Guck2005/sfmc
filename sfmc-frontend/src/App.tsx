@@ -16,6 +16,7 @@ import InventoryOverviewPage from '@/pages/inventory/InventoryOverviewPage'
 import InventoryWarehousesPage from '@/pages/inventory/InventoryWarehousesPage'
 import InventoryStockLinesPage from '@/pages/inventory/InventoryStockLinesPage'
 import InventoryMovementsPage from '@/pages/inventory/InventoryMovementsPage'
+import PendingReceptionsPage from '@/pages/inventory/PendingReceptionsPage'
 import InventoryToolsPage from '@/pages/inventory/InventoryToolsPage'
 import InventoryGraphqlPage from '@/pages/inventory/InventoryGraphqlPage'
 import ProductionLayout from '@/pages/production/ProductionLayout'
@@ -74,6 +75,7 @@ export default function App() {
                   <Route path="warehouses" element={<InventoryWarehousesPage />} />
                   <Route path="stock-lines" element={<InventoryStockLinesPage />} />
                   <Route path="movements" element={<InventoryMovementsPage />} />
+                  <Route path="pending-receptions" element={<PendingReceptionsPage />} />
                   <Route path="tools" element={<InventoryToolsPage />} />
                   <Route path="graphql" element={<InventoryGraphqlPage />} />
                 </Route>

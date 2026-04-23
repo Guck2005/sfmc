@@ -5,7 +5,10 @@ import {
   releaseMachineForProductionOrder,
   promoteQueuedProductionOrders,
 } from '#services/production_planner'
-import { publishProductionStatusChanged } from '#services/production_events'
+import {
+  publishProductionCompleted,
+  publishProductionStatusChanged,
+} from '#services/production_events'
 import { randomUUID } from 'node:crypto'
 import vine from '@vinejs/vine'
 import logger from '@adonisjs/core/services/logger'
@@ -64,14 +67,14 @@ export default class ProductionOrdersController {
     const schema = vine.object({
       productId: vine.string().uuid(),
       quantity: vine.number().positive(),
-      orderId: vine.string().uuid(),
+      orderId: vine.string().uuid().optional(),
     })
     const payload = await request.validateUsing(vine.compile(schema))
 
     const order = await ProductionOrder.create({
       productId: payload.productId,
       quantity: payload.quantity,
-      orderId: payload.orderId,
+      orderId: payload.orderId ?? null,
       status: 'PLANNED', // Explicit instead of default for clarity
     })
 
@@ -93,6 +96,10 @@ export default class ProductionOrdersController {
     await releaseIfTerminal(order, payload.status)
     await publishProductionStatusChanged(order, fromStatus, payload.status)
 
+    if (payload.status === 'COMPLETED' && fromStatus !== 'COMPLETED') {
+      await publishProductionCompleted(order)
+    }
+
     return response.ok({ data: order })
   }
 
@@ -112,19 +119,7 @@ export default class ProductionOrdersController {
       await order.save()
       await releaseIfTerminal(order, 'COMPLETED')
       await publishProductionStatusChanged(order, fromQCStatus, 'COMPLETED')
-
-      await publishEvent({
-        id: randomUUID(),
-        type: 'production.completed',
-        payload: {
-          productionOrderId: order.id,
-          orderId: order.orderId,
-          productId: order.productId,
-          quantity: order.quantity,
-          notes: payload.notes,
-        },
-        timestamp: new Date().toISOString(),
-      })
+      await publishProductionCompleted(order, { notes: payload.notes })
     } else {
       order.status = 'REJECTED'
       await order.save()

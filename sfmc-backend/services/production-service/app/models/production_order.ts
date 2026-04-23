@@ -26,7 +26,7 @@ export default class ProductionOrder extends BaseModel {
   declare quantity: number
 
   @column()
-  declare orderId: string
+  declare orderId: string | null
 
   @column()
   declare status: ProductionOrderStatus

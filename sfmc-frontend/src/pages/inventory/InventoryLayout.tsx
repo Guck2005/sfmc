@@ -6,7 +6,8 @@ const TABS: { to: string; label: string }[] = [
   { to: '/inventory/warehouses', label: 'Entrepôts' },
   { to: '/inventory/stock-lines', label: 'Lignes de stock' },
   { to: '/inventory/movements', label: 'Mouvements' },
-  { to: '/inventory/tools', label: 'Outils saga' },
+  { to: '/inventory/pending-receptions', label: 'Réceptions en attente' },
+  { to: '/inventory/tools', label: 'Outils avancés' },
   { to: '/inventory/graphql', label: 'Lecture avancée' },
 ]
 

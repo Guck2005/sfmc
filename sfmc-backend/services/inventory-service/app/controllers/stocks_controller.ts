@@ -24,12 +24,10 @@ export default class StocksController {
   async index({ request, response }: HttpContext) {
     const warehouseId = request.input('warehouseId')
     const productId = request.input('productId')
-    const stockType = request.input('stockType')
 
     const query = Stock.query().orderBy('product_id').orderBy('warehouse_id')
     if (warehouseId) query.where('warehouse_id', warehouseId)
     if (productId) query.where('product_id', productId)
-    if (stockType) query.where('stock_type', stockType)
 
     const stocks = await query
     return response.ok({ data: stocks.map((s) => s.serialize()) })
@@ -116,9 +114,7 @@ export default class StocksController {
    */
   async checkAvailability({ request, response }: HttpContext) {
     const payload = await request.validateUsing(checkAvailabilityValidator)
-    const stocks = await Stock.query()
-      .where('product_id', payload.productId)
-      .where('stock_type', 'FINISHED_PRODUCT')
+    const stocks = await Stock.query().where('product_id', payload.productId)
     const totalAvailable = stocks.reduce((sum, s) => sum + computeAvailable(s), 0)
     return response.ok({
       data: {

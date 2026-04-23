@@ -68,6 +68,14 @@ router
     router.post('/release', [() => import('#controllers/stocks_controller'), 'release'])
     router.post('/movements', [() => import('#controllers/stocks_controller'), 'createMovement'])
     router.get('/movements', [() => import('#controllers/stocks_controller'), 'listMovements'])
+    router.get('/pending-receptions', [
+      () => import('#controllers/pending_stock_receptions_controller'),
+      'index',
+    ])
+    router.post('/pending-receptions/:id/confirm', [
+      () => import('#controllers/pending_stock_receptions_controller'),
+      'confirm',
+    ])
     router.put('/:id/threshold', [() => import('#controllers/stocks_controller'), 'updateThreshold'])
     router.get('/:productId/warehouses', [() => import('#controllers/stocks_controller'), 'byProduct'])
   })

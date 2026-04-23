@@ -36,13 +36,13 @@ import {
 import { RowActionsMenu } from '@/components/RowActionsMenu'
 import { useProductNameMap } from '@/hooks/use-product-name-map'
 import { isKnownCatalogProductId } from '@/lib/catalog'
-import { productionService } from '@/services'
+import { ordersService, productionService } from '@/services'
 import { asArray } from '@/lib/pagination'
 import { formatDateTime } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/api'
 import { DataTableEmpty } from '@/components/DataTableEmpty'
 import { useAuthStore } from '@/stores/auth-store'
-import type { ProductionOrder, ProductionStatus } from '@/types/domain'
+import type { Order, OrderStatus, ProductionOrder, ProductionStatus } from '@/types/domain'
 import {
   ALL_PO_STATUS,
   PO_STATUS_LABELS,
@@ -55,6 +55,21 @@ import {
   type QualityFormIn,
   type QualityFormOut,
 } from './production-shared'
+
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  PENDING: 'En attente',
+  VALIDATED: 'Validée',
+  IN_PRODUCTION: 'En production',
+  READY: 'Prête',
+  SHIPPED: 'Expédiée',
+  DELIVERED: 'Livrée',
+  CANCELLED: 'Annulée',
+}
+
+/** Commandes encore éligibles pour un lien OF (pas livrées, pas annulées). */
+function isOrderLinkableForProduction(status: OrderStatus) {
+  return status !== 'DELIVERED' && status !== 'CANCELLED'
+}
 
 export default function ProductionOrdersPage() {
   const [open, setOpen] = useState(false)
@@ -76,6 +91,16 @@ export default function ProductionOrdersPage() {
 
   const { products, productLabel, nameById } = useProductNameMap({ limit: 200 })
 
+  const { data: ordersForLinkData } = useQuery({
+    queryKey: ['orders-for-production-link'],
+    queryFn: () => ordersService.list({ limit: 150 }),
+    enabled: open,
+  })
+
+  const linkableOrders = asArray<Order>(ordersForLinkData).filter((o) =>
+    isOrderLinkableForProduction(o.status)
+  )
+
   const { data: detailOrder, isFetching: loadingDetail } = useQuery({
     queryKey: ['production-order', detailId],
     queryFn: () => productionService.get(detailId!),
@@ -89,7 +114,12 @@ export default function ProductionOrdersPage() {
   })
 
   const createMutation = useMutation({
-    mutationFn: (payload: ProductionOrderFormOut) => productionService.create(payload),
+    mutationFn: (payload: ProductionOrderFormOut) =>
+      productionService.create({
+        productId: payload.productId,
+        quantity: payload.quantity,
+        ...(payload.orderId ? { orderId: payload.orderId } : {}),
+      }),
     onSuccess: () => {
       toast.success('Ordre de production créé')
       qc.invalidateQueries({ queryKey: ['production-orders'] })
@@ -138,7 +168,8 @@ export default function ProductionOrdersPage() {
           <div>
             <CardTitle>Ordres de production</CardTitle>
             <CardDescription>
-              Suivez et mettez à jour l’avancement des ordres de fabrication liés aux commandes.
+              Suivez les ordres de fabrication ; à la création, la liaison à une commande est facultative (liste des
+              commandes non livrées).
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -155,7 +186,15 @@ export default function ProductionOrdersPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Dialog open={open} onOpenChange={setOpen}>
+            <Dialog
+              open={open}
+              onOpenChange={(v) => {
+                setOpen(v)
+                if (v) {
+                  form.reset({ quantity: 1, productId: '', orderId: undefined })
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button>
                   <Plus className="mr-1 h-4 w-4" />
@@ -193,8 +232,25 @@ export default function ProductionOrdersPage() {
                     <Input type="number" min={1} {...form.register('quantity')} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Commande liée</Label>
-                    <Input {...form.register('orderId')} placeholder="Identifiant de la commande" />
+                    <Label>Commande liée (optionnel)</Label>
+                    <Select
+                      value={form.watch('orderId') ?? '__none__'}
+                      onValueChange={(v) =>
+                        form.setValue('orderId', v === '__none__' ? undefined : v, { shouldValidate: true })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Aucune commande" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Aucune commande</SelectItem>
+                        {linkableOrders.map((o) => (
+                          <SelectItem key={o.id} value={o.id}>
+                            {o.orderNumber ?? `Commande ${o.id.slice(0, 8)}…`} — {ORDER_STATUS_LABELS[o.status]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <DialogFooter>
                     <Button type="submit" disabled={createMutation.isPending}>
@@ -307,7 +363,11 @@ export default function ProductionOrdersPage() {
               </p>
               <p>
                 <span className="text-muted-foreground">Commande</span>{' '}
-                <span className="font-mono text-xs">{detailOrder.orderId}</span>
+                {detailOrder.orderId ? (
+                  <span className="font-mono text-xs">{detailOrder.orderId}</span>
+                ) : (
+                  <span className="text-muted-foreground">Aucune</span>
+                )}
               </p>
               <p>
                 <span className="text-muted-foreground">Produit</span>{' '}

@@ -61,7 +61,7 @@ async function findAvailableProduct(): Promise<string | null> {
   if (!res || res.status !== 200) return null
   const stocks = res.body.data || res.body
   const free = (stocks as any[]).find(
-    (s: any) => s.stockType === 'FINISHED_PRODUCT' && Number(s.quantity) - Number(s.reserved) >= 1
+    (s: any) => Number(s.quantity) - Number(s.reserved) >= 1
   )
   return free?.productId ?? null
 }
@@ -107,7 +107,7 @@ test.group('CU-01 — Création commande flux nominal', (group) => {
   group.setup(async () => {
     productId = await findAvailableProduct()
     if (!productId) {
-      console.warn('[CU-01] aucun stock FINISHED_PRODUCT disponible — tests skippés')
+      console.warn('[CU-01] aucun stock disponible — tests skippés')
     }
   })
 

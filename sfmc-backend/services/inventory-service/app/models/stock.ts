@@ -1,8 +1,6 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, computed } from '@adonisjs/lucid/orm'
 
-export type StockType = 'RAW_MATERIAL' | 'FINISHED_PRODUCT'
-
 export default class Stock extends BaseModel {
   @column({ isPrimary: true })
   declare id: string
@@ -12,9 +10,6 @@ export default class Stock extends BaseModel {
 
   @column()
   declare warehouseId: string
-
-  @column()
-  declare stockType: StockType
 
   @column({ consume: (v) => Number(v) })
   declare quantity: number

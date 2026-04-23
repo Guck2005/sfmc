@@ -24,6 +24,7 @@ export type EventType =
   | 'inventory.reserved'
   | 'inventory.reservation_failed'
   | 'inventory.critical'
+  | 'inventory.pending_reception'
   // Billing events
   | 'billing.invoice_created'
   // Auth / User events
@@ -120,6 +121,14 @@ export interface ProductionCompletedPayload {
   orderId?: string
   productId: string
   warehouseId?: string
+  quantity: number
+}
+
+/** Émis par inventory-service après création d’une réception produit fini en attente (choix entrepôt). */
+export interface InventoryPendingReceptionPayload {
+  pendingEntryId: string
+  productionOrderId: string
+  productId: string
   quantity: number
 }
 

@@ -121,12 +121,12 @@ if ($stocksResp.Body) {
   else { $stocks = $stocksResp.Body }
 }
 $product = $stocks | Where-Object {
-  $_.stockType -eq "FINISHED_PRODUCT" -and ([decimal]$_.quantity - [decimal]$_.reserved) -ge 1
+  ([decimal]$_.quantity - [decimal]$_.reserved) -ge 1
 } | Select-Object -First 1
 $productId = if ($product) { $product.productId } else { $null }
 
 if (-not $productId) {
-  Write-Host "!! Aucun produit FINISHED_PRODUCT avec stock > 0 — certaines assertions vont FAIL" -ForegroundColor Yellow
+  Write-Host "!! Aucun produit avec stock disponible > 0 — certaines assertions vont FAIL" -ForegroundColor Yellow
 }
 
 # =============================================================================
@@ -248,13 +248,13 @@ Assert-Case -Condition ($notifChannel -eq "EMAIL") `
 # =============================================================================
 Write-Host "`n=== 4. CU-02 Production (5) ===" -ForegroundColor Cyan
 
-function Get-FinishedStockTotal {
+function Get-ProductStockTotal {
   param([string]$ProductId)
   $resp = Try-Http -Url "$InventoryUrl/api/v1/stocks?productId=$ProductId"
   if (-not $resp.Body -or -not $resp.Body.data) { return [decimal]0 }
   $total = [decimal]0
   foreach ($s in @($resp.Body.data)) {
-    if ($s.stockType -eq "FINISHED_PRODUCT") { $total += [decimal]$s.quantity }
+    $total += [decimal]$s.quantity
   }
   return $total
 }
@@ -263,7 +263,7 @@ $qtyBefore = 0
 $poResp = $null
 $poId = $null
 if ($productId) {
-  $qtyBefore = Get-FinishedStockTotal -ProductId $productId
+  $qtyBefore = Get-ProductStockTotal -ProductId $productId
   $poBody = @{
     productId = $productId
     quantity  = 3
@@ -297,7 +297,7 @@ Assert-Case -Condition ($poStatus -eq "COMPLETED") -Label ("CU-02 #3 OF final st
 $qtyAfter = 0
 if ($productId) {
   for ($i = 0; $i -lt 5; $i++) {
-    $qtyAfter = Get-FinishedStockTotal -ProductId $productId
+    $qtyAfter = Get-ProductStockTotal -ProductId $productId
     if ($qtyAfter -gt $qtyBefore) { break }
     Start-Sleep -Milliseconds 1500
   }

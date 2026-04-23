@@ -42,7 +42,7 @@ export const MACHINE_STATUS_LABEL: Record<MachineStatus, string> = {
 export const productionOrderSchema = z.object({
   productId: z.string().uuid(),
   quantity: z.coerce.number().int().min(1),
-  orderId: z.string().uuid('Identifiant de commande obligatoire pour créer un OF'),
+  orderId: z.string().uuid().optional(),
 })
 export type ProductionOrderFormIn = z.input<typeof productionOrderSchema>
 export type ProductionOrderFormOut = z.output<typeof productionOrderSchema>

@@ -9,7 +9,7 @@ export async function initRabbitMQ() {
     onOrderShipped,
     onOrderDelivered,
     onOrderCancelled,
-    onProductionCompleted,
+    onInventoryPendingReception,
     onProductionQualityFailed,
     onInventoryCritical,
     onBillingInvoiceCreated,
@@ -40,9 +40,9 @@ export async function initRabbitMQ() {
   })
 
   await consume({
-    queue: 'notif.production_completed_q',
-    routingKeys: ['production.completed'],
-    handler: onProductionCompleted,
+    queue: 'notif.inventory_pending_reception_q',
+    routingKeys: ['inventory.pending_reception'],
+    handler: onInventoryPendingReception,
   })
 
   await consume({

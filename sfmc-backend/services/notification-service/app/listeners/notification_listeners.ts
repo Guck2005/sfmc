@@ -134,17 +134,22 @@ export async function onOrderCancelled(event: any) {
 // Internal operational events (Email only, multi-recipient)
 // ---------------------------------------------------------------------------
 
-export async function onProductionCompleted(event: any) {
-  logger.info({ eventId: event.id }, '[notification] received production.completed')
-  const payload = event.payload
+export async function onInventoryPendingReception(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received inventory.pending_reception')
+  const payload = event.payload ?? {}
   const recipients = uniqueRecipients([logisticsEmail()])
 
   await sendEmailNotification(
     event,
     recipients,
-    'PRODUCTION_COMPLETED',
-    `Production terminée — ${payload.productId}`,
-    `Production terminée.\n\nOrdre de fabrication : ${payload.productionOrderId}\nProduit : ${payload.productId}\nQuantité : ${payload.quantity}\n${payload.orderId ? `Commande associée : ${payload.orderId}` : '(stock libre)'}\n\nLe stock de produits finis a été mis à jour.`
+    'PENDING_STOCK_RECEPTION',
+    `Réception stock à valider — ${payload.quantity ?? '?'} unité(s)`,
+    `Une production terminée attend d’être rangée au stock produit fini.\n\n` +
+      `Réf. réception : ${payload.pendingEntryId ?? '—'}\n` +
+      `Ordre de fabrication : ${payload.productionOrderId ?? '—'}\n` +
+      `Produit (id catalogue) : ${payload.productId ?? '—'}\n` +
+      `Quantité : ${payload.quantity ?? '—'}\n\n` +
+      `Action requise : dans l’application SFMC, menu Stocks → Réceptions en attente, choisir l’entrepôt de destination et confirmer.`
   )
 }
 
