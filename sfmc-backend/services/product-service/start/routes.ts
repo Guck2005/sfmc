@@ -12,6 +12,11 @@ import db from '@adonisjs/lucid/services/db'
 import type { HttpContext } from '@adonisjs/core/http'
 import { HeaderMap } from '@apollo/server'
 import { middleware } from '#start/kernel'
+import {
+  isGraphqlMutation,
+  verifyJwtPayload,
+  type GraphqlAuthUser,
+} from '#services/graphql_auth'
 
 router.get('/health', async ({ response }: HttpContext) => {
   const checks: Record<string, string> = {}
@@ -48,6 +53,38 @@ router
   .use(middleware.role(['ADMIN']))
 
 router.any('/graphql', async ({ request, response }: HttpContext) => {
+  const body = request.body() as { query?: string; operationName?: string } | undefined
+  const queryStr = body?.query ?? (request.input('query') as string | undefined) ?? ''
+  const operationName =
+    body?.operationName ?? (request.input('operationName') as string | undefined)
+
+  let graphqlAuth: GraphqlAuthUser | undefined
+  if (isGraphqlMutation(queryStr, operationName)) {
+    const auth = verifyJwtPayload(request.header('Authorization'))
+    if (auth === 'missing') {
+      return response.unauthorized({
+        error: {
+          code: 'MISSING_TOKEN',
+          message: 'Token requis pour les mutations GraphQL',
+        },
+      })
+    }
+    if (auth === 'invalid') {
+      return response.unauthorized({
+        error: { code: 'INVALID_TOKEN', message: 'Token invalide ou expiré' },
+      })
+    }
+    if (auth.role !== 'ADMIN') {
+      return response.forbidden({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Les mutations GraphQL sont réservées au rôle ADMIN',
+        },
+      })
+    }
+    graphqlAuth = auth
+  }
+
   const { apolloServer } = await import('../app/graphql/schema.js')
 
   if (!(apolloServer as any).internals?.state?.phase?.startsWith('started')) {
@@ -68,7 +105,7 @@ router.any('/graphql', async ({ request, response }: HttpContext) => {
       search: request.parsedUrl.search ?? '',
       body: () => Promise.resolve(request.body()),
     },
-    context: async () => ({}),
+    context: async () => ({ auth: graphqlAuth }),
   })
 
   for (const [key, value] of httpGraphqlResponse.headers) {

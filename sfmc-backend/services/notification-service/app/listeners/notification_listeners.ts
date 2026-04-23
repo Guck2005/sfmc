@@ -75,12 +75,13 @@ export async function onOrderValidated(event: any) {
   const payload = event.payload
   const recipients = uniqueRecipients([payload.customerEmail])
 
+  const orderRef = payload.orderNumber ?? payload.orderId
   await sendEmailNotification(
     event,
     recipients,
     'ORDER_VALIDATED',
-    `Commande ${payload.orderId} validée`,
-    `Bonjour,\n\nVotre commande n°${payload.orderId} a été validée avec succès.\nMontant total : ${payload.totalAmount} ${payload.currency || 'XOF'}.\n\nMerci de votre confiance.\nSFMC Bénin`
+    `Commande ${orderRef} validée`,
+    `Bonjour,\n\nVotre commande n°${orderRef} a été validée avec succès.\nMontant total : ${payload.totalAmount} ${payload.currency || 'XOF'}.\n\nMerci de votre confiance.\nSFMC Bénin`
   )
 }
 
@@ -89,12 +90,13 @@ export async function onOrderShipped(event: any) {
   const payload = event.payload
   const recipients = uniqueRecipients([payload.customerEmail])
 
+  const orderRef = payload.orderNumber ?? payload.orderId
   await sendEmailNotification(
     event,
     recipients,
     'ORDER_SHIPPED',
-    `Commande ${payload.orderId} expédiée`,
-    `Bonjour,\n\nVotre commande n°${payload.orderId} est en cours de livraison.\nDate d'expédition : ${payload.shippedAt ?? new Date().toISOString()}.\n\nVous recevrez une nouvelle notification dès la livraison.\nSFMC Bénin`
+    `Commande ${orderRef} expédiée`,
+    `Bonjour,\n\nVotre commande n°${orderRef} est en cours de livraison.\nDate d'expédition : ${payload.shippedAt ?? new Date().toISOString()}.\n\nVous recevrez une nouvelle notification dès la livraison.\nSFMC Bénin`
   )
 }
 
@@ -103,12 +105,13 @@ export async function onOrderDelivered(event: any) {
   const payload = event.payload
   const recipients = uniqueRecipients([payload.customerEmail])
 
+  const orderRef = payload.orderNumber ?? payload.orderId
   await sendEmailNotification(
     event,
     recipients,
     'ORDER_DELIVERED',
-    `Commande ${payload.orderId} livrée`,
-    `Bonjour,\n\nVotre commande n°${payload.orderId} a été livrée avec succès.\nDate : ${payload.deliveredAt ?? new Date().toISOString()}.\n\nNous vous remercions pour votre confiance.\nSFMC Bénin`
+    `Commande ${orderRef} livrée`,
+    `Bonjour,\n\nVotre commande n°${orderRef} a été livrée avec succès.\nDate : ${payload.deliveredAt ?? new Date().toISOString()}.\n\nNous vous remercions pour votre confiance.\nSFMC Bénin`
   )
 }
 
@@ -116,13 +119,14 @@ export async function onOrderCancelled(event: any) {
   logger.info({ eventId: event.id }, '[notification] received order.cancelled')
   const payload = event.payload
   const recipients = uniqueRecipients([payload.customerEmail])
+  const orderRef = payload.orderNumber ?? payload.orderId
 
   await sendEmailNotification(
     event,
     recipients,
     'ORDER_CANCELLED',
-    `Commande ${payload.orderId} annulée`,
-    `Bonjour,\n\nVotre commande n°${payload.orderId} a été annulée.\nRaison : ${payload.reason || 'Non spécifiée'}.\n\nPour toute question, contactez notre support.\nSFMC Bénin`
+    `Commande ${orderRef} annulée`,
+    `Bonjour,\n\nVotre commande n°${orderRef} a été annulée.\nRaison : ${payload.reason || 'Non spécifiée'}.\n\nPour toute question, contactez notre support.\nSFMC Bénin`
   )
 }
 
@@ -177,12 +181,14 @@ export async function onBillingInvoiceCreated(event: any) {
   const payload = event.payload
   const recipients = uniqueRecipients([payload.customerEmail, financeEmail()])
 
+  const invRef = payload.invoiceNumber ?? payload.invoiceId
+  const ordRef = payload.orderNumber ?? payload.orderId
   await sendEmailNotification(
     event,
     recipients,
     'INVOICE_CREATED',
-    `Facture ${payload.invoiceId} générée`,
-    `Une facture a été générée :\n\nFacture : ${payload.invoiceId}\nCommande : ${payload.orderId}\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}\n\nVous pouvez la consulter ou la télécharger depuis votre espace client.\nSFMC Bénin`
+    `Facture ${invRef} générée`,
+    `Une facture a été générée :\n\nFacture : ${invRef}\nCommande : ${ordRef}\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}\n\nVous pouvez la consulter ou la télécharger depuis votre espace client.\nSFMC Bénin`
   )
 }
 

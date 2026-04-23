@@ -16,6 +16,10 @@ export default class Order extends BaseModel {
   @column({ isPrimary: true })
   declare id: string
 
+  /** Référence affichable (ex. CMD-2026-000001) — distincte de l’UUID `id`. */
+  @column({ columnName: 'order_number' })
+  declare orderNumber: string
+
   @column()
   declare customerId: string
 

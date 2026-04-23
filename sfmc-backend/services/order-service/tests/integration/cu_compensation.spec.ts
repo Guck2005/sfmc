@@ -42,7 +42,9 @@ async function tryJson(url: string, opts: any = {}): Promise<{ status: number; b
 }
 
 async function anyProduct(): Promise<string | null> {
-  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`)
+  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`, {
+    headers: { authorization: `Bearer ${serviceToken()}` },
+  })
   if (!res || res.status !== 200) return null
   const stocks = res.body.data || res.body
   return (stocks as any[])[0]?.productId ?? null

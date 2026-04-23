@@ -14,6 +14,8 @@ x-common-env: &common-env
   DB_SSL: "false"
   RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
   APP_KEY: change-me-to-a-32-char-random-string
+  # Même secret que auth-service pour valider les JWT sur toutes les APIs protégées
+  JWT_SECRET: change-me-jwt-secret-32-chars-min
 
 services:
   rabbitmq:
@@ -151,7 +153,6 @@ services:
       DB_HOST: auth-db
       DB_PORT: 5432
       DB_DATABASE: sfmc_auth
-      JWT_SECRET: change-me-jwt-secret-32-chars-min
       REDIS_URL: redis://redis:6379
     ports: ["3001:3001"]
 
@@ -202,13 +203,16 @@ services:
     container_name: sfmc-order-service
     restart: unless-stopped
     networks: [sfmc-network]
-    depends_on: [order-db, rabbitmq]
+    depends_on: [order-db, rabbitmq, user-service, product-service, inventory-service]
     environment:
       <<: *common-env
       PORT: 3005
       DB_HOST: order-db
       DB_PORT: 5432
       DB_DATABASE: sfmc_order
+      INVENTORY_SERVICE_URL: http://inventory-service:3004
+      PRODUCT_SERVICE_URL: http://product-service:3003
+      USER_SERVICE_URL: http://user-service:3002
     ports: ["3005:3005"]
 
   production-service:

@@ -1,10 +1,12 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import Invoice from '#models/invoice'
+import CreditNote from '#models/credit_note'
 import Payment from '#models/payment'
 import vine from '@vinejs/vine'
 import { buildInvoicePdf } from '#services/pdf_invoice'
+import { buildCreditNotePdf } from '#services/pdf_credit_note'
 
-const INVOICE_STATUSES = ['PENDING', 'PAID', 'CANCELLED'] as const
+const INVOICE_STATUSES = ['PENDING', 'PAID', 'CANCELLED', 'REFUNDED'] as const
 
 function currentUser(ctx: HttpContext): { id: string; email: string; role: string } | null {
   return (ctx as any).auth ?? null
@@ -102,9 +104,12 @@ export default class InvoicesController {
     }
     const invoice = await Invoice.findOrFail(params.id)
 
-    if (invoice.status === 'CANCELLED') {
+    if (invoice.status === 'CANCELLED' || invoice.status === 'REFUNDED') {
       return response.unprocessableEntity({
-        error: { code: 'INVOICE_CANCELLED', message: 'Impossible de payer une facture annulée' },
+        error: {
+          code: 'INVOICE_NOT_PAYABLE',
+          message: 'Impossible d’enregistrer un paiement sur une facture annulée ou remboursée',
+        },
       })
     }
 
@@ -153,7 +158,73 @@ export default class InvoicesController {
     const pdf = await buildInvoicePdf(invoice)
 
     response.header('Content-Type', 'application/pdf')
-    response.header('Content-Disposition', `attachment; filename=invoice-${invoice.id}.pdf`)
+    const safeName = invoice.invoiceNumber?.replace(/[^\w.-]+/g, '_')
+    response.header(
+      'Content-Disposition',
+      `attachment; filename=${safeName ? `facture-${safeName}` : `invoice-${invoice.id}`}.pdf`
+    )
+    response.header('Content-Length', String(pdf.length))
+    return response.send(pdf)
+  }
+
+  /**
+   * GET /api/v1/invoices/:id/credit-note
+   * Ressource « avoir » si la facture a été remboursée (annulation post-paiement).
+   */
+  public async creditNote(ctx: HttpContext) {
+    const { params, response } = ctx
+    const invoice = await Invoice.findOrFail(params.id)
+    if (!ensureClientOwnership(ctx, invoice)) return
+    if (invoice.status !== 'REFUNDED') {
+      return response.notFound({
+        error: {
+          code: 'CREDIT_NOTE_NOT_FOUND',
+          message: 'Aucun avoir pour cette facture',
+        },
+      })
+    }
+    const note = await CreditNote.findBy('invoiceId', invoice.id)
+    if (!note) {
+      return response.notFound({
+        error: {
+          code: 'CREDIT_NOTE_NOT_FOUND',
+          message: 'Avoir non trouvé — contactez la finance.',
+        },
+      })
+    }
+    return response.ok({ data: note })
+  }
+
+  /**
+   * GET /api/v1/invoices/:id/credit-note/pdf
+   */
+  public async creditNotePdf(ctx: HttpContext) {
+    const { params, response } = ctx
+    const invoice = await Invoice.findOrFail(params.id)
+    if (!ensureClientOwnership(ctx, invoice)) return
+    if (invoice.status !== 'REFUNDED') {
+      return response.notFound({
+        error: {
+          code: 'CREDIT_NOTE_NOT_FOUND',
+          message: 'Aucun avoir pour cette facture',
+        },
+      })
+    }
+    const note = await CreditNote.findBy('invoiceId', invoice.id)
+    if (!note) {
+      return response.notFound({
+        error: {
+          code: 'CREDIT_NOTE_NOT_FOUND',
+          message: 'Avoir non trouvé.',
+        },
+      })
+    }
+    const pdf = await buildCreditNotePdf(note, invoice)
+    response.header('Content-Type', 'application/pdf')
+    response.header(
+      'Content-Disposition',
+      `attachment; filename=credit-note-${note.id}.pdf`
+    )
     response.header('Content-Length', String(pdf.length))
     return response.send(pdf)
   }

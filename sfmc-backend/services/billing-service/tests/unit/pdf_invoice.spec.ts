@@ -6,6 +6,8 @@ import { DateTime } from 'luxon'
 function fakeInvoice(overrides: Record<string, any> = {}) {
   return {
     id: '11111111-1111-1111-1111-111111111111',
+    invoiceNumber: 'FAC-2026-000099',
+    orderPublicNumber: 'CMD-2026-000042',
     orderId: '22222222-2222-2222-2222-222222222222',
     customerId: '33333333-3333-3333-3333-333333333333',
     amount: 15500,

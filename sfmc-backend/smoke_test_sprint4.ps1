@@ -1,4 +1,4 @@
-﻿<# ============================================
+<# ============================================
    SFMC BENIN - SMOKE TEST SPRINT 4
    Reporting, Securite, Observabilite, Deploiement
 ============================================ #>
@@ -84,7 +84,7 @@ try {
         $LoginRes = Invoke-RestMethod -Uri "http://localhost:3001/api/v1/auth/login" -Method POST -Body $LoginBody -ContentType "application/json"
         $Token = $LoginRes.data.token.token
     } catch {
-        $Token = node -e "const jwt = require('jsonwebtoken'); console.log(jwt.sign({ id: '123e4567-e89b-12d3-a456-426614174000', role: 'ADMIN' }, 'dev-secret-change-me-32-characters-minimum', { expiresIn: '1h' }))"
+        $Token = node -e "const jwt = require('jsonwebtoken'); console.log(jwt.sign({ sub: '123e4567-e89b-12d3-a456-426614174000', email: 'admin@sfmc.bj', role: 'ADMIN' }, 'dev-secret-change-me-32-characters-minimum', { expiresIn: '1h' }))"
     }
     Assert-Check ($null -ne $Token) "Obtention du token JWT"
     $Headers = @{ Authorization = "Bearer $Token" }
@@ -110,7 +110,7 @@ try {
     # 6. Dashboard REST Reporting
     # --------------------------------------------------
     Write-Host "[*] 6. Dashboard REST Reporting" -ForegroundColor Cyan
-    $dash = Invoke-RestMethod -Uri "http://localhost:3009/api/v1/reports/dashboard" -Method GET -TimeoutSec 5
+    $dash = Invoke-RestMethod -Uri "http://localhost:3009/api/v1/reports/dashboard" -Method GET -Headers $Headers -TimeoutSec 5
     Assert-Check ($null -ne $dash.data) "GET /api/v1/reports/dashboard repond"
     Assert-Check ($dash.data.totalOrders -ge 1) "Reporting: au moins 1 commande projetee"
 
@@ -119,7 +119,7 @@ try {
     # --------------------------------------------------
     Write-Host "[*] 7. GraphQL Reporting" -ForegroundColor Cyan
     $gqlBody = @{ query = "{ dashboardKPIs { totalOrders totalRevenue qualityFailureRate ordersByStatus { status count } } }" } | ConvertTo-Json
-    $gql = Invoke-RestMethod -Uri "http://localhost:3009/graphql" -Method POST -Body $gqlBody -ContentType "application/json" -TimeoutSec 5
+    $gql = Invoke-RestMethod -Uri "http://localhost:3009/graphql" -Method POST -Body $gqlBody -ContentType "application/json" -Headers $Headers -TimeoutSec 5
     Assert-Check ($null -ne $gql.data.dashboardKPIs) "GraphQL dashboardKPIs OK"
 
     # --------------------------------------------------
@@ -160,7 +160,7 @@ try {
     Write-Host "[*] 11. Re-creation + idempotence Reporting" -ForegroundColor Cyan
     $null = Invoke-RestMethod -Uri "http://localhost:3005/api/v1/orders" -Method POST -Body $OrderBody -ContentType "application/json" -Headers $Headers
     Start-Sleep -Seconds 5
-    $dash2 = Invoke-RestMethod -Uri "http://localhost:3009/api/v1/reports/dashboard" -Method GET
+    $dash2 = Invoke-RestMethod -Uri "http://localhost:3009/api/v1/reports/dashboard" -Method GET -Headers $Headers
     Assert-Check ($dash2.data.totalOrders -ge 2) "Reporting agrege la 2eme commande"
 
     # --------------------------------------------------
@@ -168,7 +168,7 @@ try {
     # --------------------------------------------------
     Write-Host "[*] 12. GraphQL criticalStockAlerts" -ForegroundColor Cyan
     $gqlBody2 = @{ query = "{ criticalStockAlerts { productId quantity threshold } }" } | ConvertTo-Json
-    $gql2 = Invoke-RestMethod -Uri "http://localhost:3009/graphql" -Method POST -Body $gqlBody2 -ContentType "application/json" -TimeoutSec 5
+    $gql2 = Invoke-RestMethod -Uri "http://localhost:3009/graphql" -Method POST -Body $gqlBody2 -ContentType "application/json" -Headers $Headers -TimeoutSec 5
     Assert-Check ($null -ne $gql2.data.criticalStockAlerts) "GraphQL criticalStockAlerts execute"
 
     # --------------------------------------------------
@@ -176,7 +176,7 @@ try {
     # --------------------------------------------------
     Write-Host "[*] 13. GraphQL productionReport" -ForegroundColor Cyan
     $gqlBody3 = @{ query = "{ productionReport { byStatus { status count } } }" } | ConvertTo-Json
-    $gql3 = Invoke-RestMethod -Uri "http://localhost:3009/graphql" -Method POST -Body $gqlBody3 -ContentType "application/json" -TimeoutSec 5
+    $gql3 = Invoke-RestMethod -Uri "http://localhost:3009/graphql" -Method POST -Body $gqlBody3 -ContentType "application/json" -Headers $Headers -TimeoutSec 5
     Assert-Check ($null -ne $gql3.data.productionReport) "GraphQL productionReport execute"
 
 } catch {

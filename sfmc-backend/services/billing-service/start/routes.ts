@@ -42,6 +42,8 @@ router
     router.get('/invoices/:id/payments', [InvoicesController, 'listPayments'])
     router.post('/invoices/:id/payments', [InvoicesController, 'recordPayment'])
     router.get('/invoices/:id/pdf', [InvoicesController, 'pdf'])
+    router.get('/invoices/:id/credit-note', [InvoicesController, 'creditNote'])
+    router.get('/invoices/:id/credit-note/pdf', [InvoicesController, 'creditNotePdf'])
   })
   .prefix('/api/v1')
   .use(middleware.auth())

@@ -135,7 +135,7 @@ export async function onInvoiceCreated(event: any) {
   )
   await markProcessed(event.id, event.type)
   await broadcastKpiUpdate()
-  logger.info({ invoiceId: p.invoiceId }, '[reporting] invoice.created projected')
+  logger.info({ invoiceId: p.invoiceId }, '[reporting] billing.invoice_created projected')
 }
 
 export async function onInventoryCritical(event: any) {

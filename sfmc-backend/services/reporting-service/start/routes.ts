@@ -9,6 +9,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { HeaderMap } from '@apollo/server'
 import db from '@adonisjs/lucid/services/db'
 import { isConnected as isRabbitConnected } from '#services/rabbitmq'
+import { middleware } from '#start/kernel'
 
 router.get('/health', async ({ response }: HttpContext) => {
   const checks: Record<string, string> = {}
@@ -35,12 +36,20 @@ router.get('/health', async ({ response }: HttpContext) => {
   return response.status(allOk ? 200 : 503).send(body)
 })
 
+/** Dashboard lecture seule : également accessible aux CLIENT (données filtrées côté serveur). */
 router
   .group(() => {
     router.get('/reports/dashboard', [
       () => import('#controllers/reports_controller'),
       'dashboard',
     ])
+  })
+  .prefix('/api/v1')
+  .use(middleware.auth())
+  .use(middleware.role(['ADMIN', 'OPERATOR', 'CLIENT']))
+
+router
+  .group(() => {
     router.get('/reports/sales', [() => import('#controllers/reports_controller'), 'sales'])
     router.get('/reports/production', [
       () => import('#controllers/reports_controller'),
@@ -54,8 +63,12 @@ router
     ])
   })
   .prefix('/api/v1')
+  .use(middleware.auth())
+  .use(middleware.role(['ADMIN', 'OPERATOR']))
 
-router.post('/graphql', async ({ request, response }: HttpContext) => {
+router
+  .group(() => {
+    router.post('/graphql', async ({ request, response }: HttpContext) => {
   const { apolloServer } = await import('../app/graphql/schema.js')
 
   if (!(apolloServer as any).internals?.state?.phase?.startsWith('started')) {
@@ -88,4 +101,7 @@ router.post('/graphql', async ({ request, response }: HttpContext) => {
   }
 
   return response.status(500).send('Streaming not supported')
-})
+    })
+  })
+  .use(middleware.auth())
+  .use(middleware.role(['ADMIN', 'OPERATOR']))

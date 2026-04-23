@@ -33,6 +33,16 @@ export const runnerHooks: Required<Pick<Config, 'setup' | 'teardown'>> = {
  */
 export const configureSuite: Config['configureSuite'] = (suite) => {
   if (['browser', 'functional', 'e2e'].includes(suite.name)) {
-    return suite.setup(() => testUtils.httpServer().start())
+    suite.setup(() => testUtils.httpServer().start())
+  }
+  /** Aucun envoi réel : les tests fonctionnels simulent SMTP (Brevo jamais contacté). */
+  if (suite.name === 'functional') {
+    suite.setup(async () => {
+      const { __setTransporterForTest } = await import('#services/dispatcher')
+      __setTransporterForTest({
+        sendMail: async () => ({ messageId: 'email-simulation' }),
+      } as any)
+      return () => __setTransporterForTest(null)
+    })
   }
 }

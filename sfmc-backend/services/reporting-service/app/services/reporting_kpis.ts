@@ -73,46 +73,88 @@ function periodStamp(range?: DateRange): { from: string | null; to: string | nul
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard (unchanged — aggregates across all time)
+// Dashboard — période optionnelle ; scope `customerId` = vue CLIENT (commandes
+// + factures liées uniquement ; production / stocks critiques masqués).
 // ---------------------------------------------------------------------------
 
-export async function computeDashboardKPIs(): Promise<DashboardKPIs> {
-  const totalOrdersRow = await db.from('report_orders').count('* as c').first()
-  const revenueRow = await db
-    .from('report_orders')
+export type DashboardKpiOptions = {
+  range?: DateRange
+  /** Filtrage strict côté serveur (ex. utilisateur JWT CLIENT). */
+  customerId?: string | null
+}
+
+function reportOrdersForDashboard(range: DateRange, customerId: string | null) {
+  const q = db.from('report_orders')
+  if (customerId) {
+    q.where('customer_id', customerId)
+  }
+  applyDateRange(q, range, 'created_at')
+  return q
+}
+
+function reportInvoicesForDashboard(range: DateRange, customerId: string | null) {
+  const q = db.from('report_invoices')
+  if (customerId) {
+    q.whereIn(
+      'order_id',
+      db.from('report_orders').select('order_id').where('customer_id', customerId).whereNotNull('order_id')
+    )
+  }
+  applyDateRange(q, range, 'issued_at')
+  return q
+}
+
+export async function computeDashboardKPIs(options?: DashboardKpiOptions): Promise<DashboardKPIs> {
+  const range = options?.range ?? {}
+  const customerId = options?.customerId ?? null
+
+  const totalOrdersRow = await reportOrdersForDashboard(range, customerId).clone().count('* as c').first()
+
+  const revenueRow = await reportOrdersForDashboard(range, customerId)
+    .clone()
     .whereIn('status', ['VALIDATED', 'SHIPPED', 'DELIVERED'])
     .sum('total_amount as s')
     .first()
-  const paidRow = await db
-    .from('report_invoices')
-    .where('status', 'PAID')
-    .count('* as c')
-    .first()
-  const pendingRow = await db
-    .from('report_invoices')
+
+  const paidRow = await reportInvoicesForDashboard(range, customerId).clone().where('status', 'PAID').count('* as c').first()
+
+  const pendingRow = await reportInvoicesForDashboard(range, customerId)
+    .clone()
     .where('status', 'PENDING')
     .count('* as c')
     .first()
-  const ordersByStatusRows = await db
-    .from('report_orders')
+
+  const ordersByStatusRows = await reportOrdersForDashboard(range, customerId)
+    .clone()
     .select('status')
     .count('* as c')
     .groupBy('status')
-  const prodCompleted = await db
-    .from('report_production_orders')
-    .where('status', 'COMPLETED')
-    .count('* as c')
-    .first()
-  const prodFailed = await db
-    .from('report_production_orders')
-    .where('status', 'QUALITY_FAILED')
-    .count('* as c')
-    .first()
-  const criticalStock = await db
-    .from('report_stock_snapshots')
-    .where('is_critical', true)
-    .count('* as c')
-    .first()
+
+  if (customerId) {
+    return {
+      totalOrders: Number(totalOrdersRow?.c ?? 0),
+      totalRevenue: Number(revenueRow?.s ?? 0),
+      paidInvoices: Number(paidRow?.c ?? 0),
+      pendingInvoices: Number(pendingRow?.c ?? 0),
+      ordersByStatus: ordersByStatusRows.map((r) => ({
+        status: String(r.status),
+        count: Number(r.c),
+      })),
+      productionCompleted: 0,
+      productionQualityFailed: 0,
+      qualityFailureRate: 0,
+      criticalStockCount: 0,
+    }
+  }
+
+  const prodQ = db.from('report_production_orders')
+  applyDateRange(prodQ, range, 'created_at')
+  const prodCompleted = await prodQ.clone().where('status', 'COMPLETED').count('* as c').first()
+  const prodFailed = await prodQ.clone().where('status', 'QUALITY_FAILED').count('* as c').first()
+
+  const stockQ = db.from('report_stock_snapshots').where('is_critical', true)
+  applyDateRange(stockQ, range, 'snapshot_at')
+  const criticalStock = await stockQ.clone().count('* as c').first()
 
   const completed = Number(prodCompleted?.c ?? 0)
   const failed = Number(prodFailed?.c ?? 0)

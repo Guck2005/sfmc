@@ -11,8 +11,13 @@ const proxyMap: Record<string, string> = {
   '/api/v1/auth': 'http://localhost:3001',
   '/api/v1/users': 'http://localhost:3002',
   '/api/v1/products': 'http://localhost:3003',
+  '/api/v1/machines': 'http://localhost:3006',
+  /** GraphQL product-service (distinct du reporting sur `/graphql`). */
+  '/api/product/graphql': 'http://localhost:3003',
   '/api/v1/warehouses': 'http://localhost:3004',
   '/api/v1/stocks': 'http://localhost:3004',
+  /** GraphQL inventory-service (distinct du `/graphql` reporting sur :3009). */
+  '/api/inventory/graphql': 'http://localhost:3004',
   '/api/v1/orders': 'http://localhost:3005',
   '/api/v1/production-orders': 'http://localhost:3006',
   '/api/v1/invoices': 'http://localhost:3007',
@@ -29,6 +34,12 @@ const proxy: Record<string, ProxyOptions> = Object.fromEntries(
       target,
       changeOrigin: true,
       ws: prefix === '/graphql',
+      ...(prefix === '/api/inventory/graphql'
+        ? { rewrite: (p: string) => p.replace(/^\/api\/inventory\/graphql/, '/graphql') }
+        : {}),
+      ...(prefix === '/api/product/graphql'
+        ? { rewrite: (p: string) => p.replace(/^\/api\/product\/graphql/, '/graphql') }
+        : {}),
     },
   ])
 )

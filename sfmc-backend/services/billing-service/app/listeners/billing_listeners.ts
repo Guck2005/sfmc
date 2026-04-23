@@ -1,7 +1,15 @@
+import { randomUUID } from 'node:crypto'
 import Invoice from '#models/invoice'
+import CreditNote from '#models/credit_note'
 import ProcessedEvent from '#models/processed_event'
 import logger from '@adonisjs/core/services/logger'
+import db from '@adonisjs/lucid/services/db'
 import { publishEvent } from '#services/rabbitmq'
+import {
+  currentInvoiceYear,
+  formatInvoicePublicNumber,
+  nextInvoiceSequence,
+} from '#services/reference_sequence'
 import type { DomainEvent } from '@sfmc/shared-types'
 import type { InvoiceCreatedPayload } from '@sfmc/event-contracts'
 
@@ -50,12 +58,27 @@ export async function onOrderValidated(event: any) {
     return
   }
 
-  const invoice = await Invoice.create({
-    orderId: payload.orderId,
-    customerId: payload.customerId || null,
-    amount: payload.totalAmount,
-    currency: payload.currency || 'XOF',
-    status: 'PENDING',
+  const orderPublicNumber =
+    typeof payload.orderNumber === 'string' && payload.orderNumber.trim().length > 0
+      ? payload.orderNumber.trim()
+      : null
+
+  const invoice = await db.transaction(async (trx) => {
+    const year = currentInvoiceYear()
+    const seq = await nextInvoiceSequence(trx, year)
+    const invoiceNumber = formatInvoicePublicNumber(year, seq)
+    return Invoice.create(
+      {
+        orderId: payload.orderId,
+        orderPublicNumber,
+        invoiceNumber,
+        customerId: payload.customerId || null,
+        amount: payload.totalAmount,
+        currency: payload.currency || 'XOF',
+        status: 'PENDING',
+      },
+      { client: trx }
+    )
   })
 
   logger.info(
@@ -65,7 +88,9 @@ export async function onOrderValidated(event: any) {
 
   const invoicePayload: InvoiceCreatedPayload = {
     invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
     orderId: invoice.orderId,
+    orderNumber: invoice.orderPublicNumber ?? undefined,
     customerId: invoice.customerId,
     customerEmail: payload.customerEmail,
     amount: Number(invoice.amount),
@@ -105,16 +130,34 @@ export async function onOrderCancelled(event: any) {
   }
 
   if (invoice.status === 'PAID') {
-    // If already paid, issue a credit note or refund
     logger.info(
       { invoiceId: invoice.id },
-      '[billing] invoice already PAID — issuing REFUND'
+      '[billing] invoice already PAID — statut REFUNDED + création avoir'
     )
     invoice.status = 'REFUNDED'
+    await invoice.save()
+
+    const existingNote = await CreditNote.findBy('invoiceId', invoice.id)
+    if (!existingNote) {
+      const reasonText =
+        typeof payload.reason === 'string' && payload.reason.trim().length > 0
+          ? `Annulation : ${payload.reason}`
+          : 'Annulation commande après paiement'
+      await CreditNote.create({
+        id: randomUUID(),
+        invoiceId: invoice.id,
+        orderId: invoice.orderId,
+        customerId: invoice.customerId,
+        amount: Number(invoice.amount),
+        currency: invoice.currency,
+        reason: reasonText,
+      })
+      logger.info({ invoiceId: invoice.id }, '[billing] credit note (avoir) created')
+    }
   } else {
     invoice.status = 'CANCELLED'
+    await invoice.save()
   }
-  await invoice.save()
 
   logger.info({ invoiceId: invoice.id, newStatus: invoice.status }, '[billing] invoice updated')
   await ProcessedEvent.create({ eventId: event.id, eventType: event.type })

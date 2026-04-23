@@ -55,7 +55,9 @@ async function tryJson(url: string, opts: any = {}): Promise<{ status: number; b
 }
 
 async function findAvailableProduct(): Promise<string | null> {
-  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`)
+  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`, {
+    headers: { authorization: `Bearer ${serviceToken('OPERATOR')}` },
+  })
   if (!res || res.status !== 200) return null
   const stocks = res.body.data || res.body
   const free = (stocks as any[]).find(

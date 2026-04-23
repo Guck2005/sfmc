@@ -95,7 +95,9 @@ test.group('Notification Matrix (Email-only)', (group) => {
     const eventId = crypto.randomUUID()
     const payload = {
       invoiceId: crypto.randomUUID(),
+      invoiceNumber: 'FAC-2026-077777',
       orderId: crypto.randomUUID(),
+      orderNumber: 'CMD-2026-066666',
       customerId: crypto.randomUUID(),
       customerEmail: 'invoice-client@test.local',
       amount: 75000,
@@ -106,7 +108,7 @@ test.group('Notification Matrix (Email-only)', (group) => {
 
     const notifs = await Notification.query()
       .where('type', 'INVOICE_CREATED')
-      .where('payload', 'LIKE', `%${payload.invoiceId}%`)
+      .where('payload', 'LIKE', `%${payload.invoiceNumber}%`)
     // customer + finance (finance falls back to admin if env unset).
     // Must at least include the customer recipient.
     assert.isAbove(notifs.length, 0)

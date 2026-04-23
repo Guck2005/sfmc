@@ -1,4 +1,4 @@
-﻿# =============================================================================
+# =============================================================================
 # SFMC Bénin — Smoke test CU-01 / CU-02 / CU-03 + Sécurité (28 assertions)
 # Mirror PowerShell du script bash smoke_test_cu.sh
 # =============================================================================
@@ -269,7 +269,7 @@ if ($productId) {
     quantity  = 3
     orderId   = $(if ($orderId) { $orderId } else { [guid]::NewGuid().ToString() })
   }
-  $poResp = Try-Http -Method POST -Url "$ProductionUrl/api/v1/production-orders" -Body $poBody
+  $poResp = Try-Http -Method POST -Url "$ProductionUrl/api/v1/production-orders" -Body $poBody -Headers $authHeader
   if ($poResp.Body -and $poResp.Body.data) { $poId = $poResp.Body.data.id }
 }
 
@@ -278,9 +278,9 @@ Assert-Case -Condition ($poResp -and $poResp.Status -eq 201) `
 
 $qcStatus = 0
 if ($poId) {
-  Try-Http -Method PUT -Url "$ProductionUrl/api/v1/production-orders/$poId/status" -Body @{ status = "IN_PROGRESS" } | Out-Null
-  Try-Http -Method PUT -Url "$ProductionUrl/api/v1/production-orders/$poId/status" -Body @{ status = "QUALITY_CHECK" } | Out-Null
-  $qc = Try-Http -Method POST -Url "$ProductionUrl/api/v1/production-orders/$poId/quality" -Body @{ passed = $true }
+  Try-Http -Method PUT -Url "$ProductionUrl/api/v1/production-orders/$poId/status" -Body @{ status = "IN_PROGRESS" } -Headers $authHeader | Out-Null
+  Try-Http -Method PUT -Url "$ProductionUrl/api/v1/production-orders/$poId/status" -Body @{ status = "QUALITY_CHECK" } -Headers $authHeader | Out-Null
+  $qc = Try-Http -Method POST -Url "$ProductionUrl/api/v1/production-orders/$poId/quality" -Body @{ passed = $true } -Headers $authHeader
   $qcStatus = $qc.Status
 }
 Assert-Case -Condition ($qcStatus -eq 200) -Label ("CU-02 #2 Quality control pass → 200 (obtenu $qcStatus)")
@@ -289,7 +289,7 @@ Start-Sleep -Milliseconds 3500
 
 $poStatus = $null
 if ($poId) {
-  $getPo = Try-Http -Url "$ProductionUrl/api/v1/production-orders/$poId"
+  $getPo = Try-Http -Url "$ProductionUrl/api/v1/production-orders/$poId" -Headers $authHeader
   if ($getPo.Body -and $getPo.Body.data) { $poStatus = $getPo.Body.data.status }
 }
 Assert-Case -Condition ($poStatus -eq "COMPLETED") -Label ("CU-02 #3 OF final status=COMPLETED (obtenu $poStatus)")

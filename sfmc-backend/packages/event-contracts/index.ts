@@ -34,20 +34,32 @@ export type EventType =
 
 export interface OrderCreatedPayload {
   orderId: string
+  /** Référence affichable type e-commerce (ex. CMD-2026-000042) */
+  orderNumber: string
   customerId: string
-  lines: Array<{ productId: string; quantity: number; unitPrice: number }>
+  lines: Array<{
+    productId: string
+    quantity: number
+    unitPrice: number
+    /** Libellé figé depuis le catalogue au moment de la commande */
+    productName: string
+  }>
   totalAmount: number
 }
 
 export interface OrderValidatedPayload {
   orderId: string
+  /** Même valeur que sur la commande (PDF facture, e-mails) */
+  orderNumber: string
   customerId: string
   customerEmail?: string
   totalAmount: number
+  currency?: string
 }
 
 export interface OrderCancelledPayload {
   orderId: string
+  orderNumber?: string
   customerId: string
   customerEmail?: string
   reason?: string
@@ -56,6 +68,7 @@ export interface OrderCancelledPayload {
 
 export interface OrderShippedPayload {
   orderId: string
+  orderNumber?: string
   customerId: string
   customerEmail?: string
   shippedAt: string
@@ -63,6 +76,7 @@ export interface OrderShippedPayload {
 
 export interface OrderDeliveredPayload {
   orderId: string
+  orderNumber?: string
   customerId: string
   customerEmail?: string
   deliveredAt: string
@@ -70,7 +84,10 @@ export interface OrderDeliveredPayload {
 
 export interface InvoiceCreatedPayload {
   invoiceId: string
+  /** Numéro facture lisible (ex. FAC-2026-000012) */
+  invoiceNumber: string
   orderId: string
+  orderNumber?: string
   customerId: string | null
   customerEmail?: string
   amount: number

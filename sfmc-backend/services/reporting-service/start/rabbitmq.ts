@@ -41,7 +41,7 @@ export async function initRabbitMQ() {
     },
     {
       queue: 'reporting.invoice_created_q',
-      routingKeys: ['invoice.created'],
+      routingKeys: ['billing.invoice_created'],
       handler: onInvoiceCreated,
     },
     {

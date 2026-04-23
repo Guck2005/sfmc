@@ -1,10 +1,11 @@
 import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Loader2, Package, Plus, Search } from 'lucide-react'
+import { Loader2, Package, Pencil, Plus, Search, Trash2, Braces } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,7 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -28,41 +29,80 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { productsService } from '@/services'
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import { RowActionsMenu } from '@/components/RowActionsMenu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { productGraphql, productsService } from '@/services'
 import { asArray } from '@/lib/pagination'
 import { formatCurrency } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/api'
 import { DataTableEmpty } from '@/components/DataTableEmpty'
 import { useAuthStore } from '@/stores/auth-store'
-import type { Product } from '@/types/domain'
+import type { Product, ProductCategory } from '@/types/domain'
+
+const CATEGORIES: ProductCategory[] = ['CIMENT', 'FER', 'BRIQUES', 'GRANULATS']
 
 const productSchema = z.object({
-  sku: z.string().min(2),
   name: z.string().min(2),
-  category: z.string().optional(),
+  category: z.enum(['CIMENT', 'FER', 'BRIQUES', 'GRANULATS']),
+  unit: z.string().min(1),
   description: z.string().optional(),
-  unitPrice: z.coerce.number().min(0),
-  currency: z.string().default('XOF'),
+  unitPrice: z.coerce.number().positive(),
 })
-type ProductFormIn = z.input<typeof productSchema>
 type ProductFormOut = z.output<typeof productSchema>
 
 export default function ProductsPage() {
+  const { productId } = useParams()
+  const navigate = useNavigate()
+  const detailId = productId ?? null
+
   const [open, setOpen] = useState(false)
+  const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [q, setQ] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<string>('__all__')
+  const [activeFilter, setActiveFilter] = useState<string>('__all__')
+  const [gqlPreview, setGqlPreview] = useState<string | null>(null)
+
   const qc = useQueryClient()
   const canManage = useAuthStore((s) => s.hasRole('ADMIN'))
 
+  const listParams = {
+    limit: 100 as const,
+    q: q || undefined,
+    ...(categoryFilter !== '__all__' ? { category: categoryFilter } : {}),
+    ...(activeFilter === 'active' ? { isActive: 'true' as const } : {}),
+    ...(activeFilter === 'inactive' ? { isActive: 'false' as const } : {}),
+  }
+
   const { data, isLoading } = useQuery({
-    queryKey: ['products', q],
-    queryFn: () => productsService.list({ limit: 100, q: q || undefined }),
+    queryKey: ['products', listParams],
+    queryFn: () => productsService.list(listParams),
+  })
+
+  const { data: detailProduct, isFetching: loadingDetail } = useQuery({
+    queryKey: ['product', detailId],
+    queryFn: () => productsService.get(detailId!),
+    enabled: !!detailId,
   })
 
   const products = asArray<Product>(data)
 
-  const form = useForm<ProductFormIn, unknown, ProductFormOut>({
+  const form = useForm({
     resolver: zodResolver(productSchema),
-    defaultValues: { currency: 'XOF' },
+    defaultValues: { category: 'CIMENT', unit: 'unité' },
+  })
+
+  const editForm = useForm({
+    resolver: zodResolver(productSchema),
   })
 
   const createMutation = useMutation({
@@ -71,133 +111,350 @@ export default function ProductsPage() {
       toast.success('Produit créé')
       qc.invalidateQueries({ queryKey: ['products'] })
       setOpen(false)
-      form.reset({ currency: 'XOF' })
+      form.reset({ category: 'CIMENT', unit: 'unité' })
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })
 
+  const updateMutation = useMutation({
+    mutationFn: (payload: { id: string; body: ProductFormOut }) =>
+      productsService.update(payload.id, payload.body),
+    onSuccess: () => {
+      toast.success('Produit mis à jour')
+      qc.invalidateQueries({ queryKey: ['products'] })
+      qc.invalidateQueries({ queryKey: ['product'] })
+      setEditProduct(null)
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  })
+
+  const deactivateMutation = useMutation({
+    mutationFn: (id: string) => productsService.remove(id),
+    onSuccess: () => {
+      toast.success('Produit désactivé')
+      qc.invalidateQueries({ queryKey: ['products'] })
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  })
+
+  const loadGraphql = async () => {
+    try {
+      const res = await productGraphql.products()
+      setGqlPreview(JSON.stringify(res.products?.slice(0, 5) ?? [], null, 2))
+      toast.success(`${res.products?.length ?? 0} produit(s) chargé(s) (aperçu).`)
+    } catch (e) {
+      toast.error(extractErrorMessage(e))
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
-        <div>
-          <CardTitle>Catalogue produits</CardTitle>
-          <div className="mt-3 relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Rechercher…"
-              className="pl-8 w-72"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <CardTitle>Catalogue produits</CardTitle>
+              <CardDescription>
+                Gérez le catalogue matériaux : prix, unités et catégories. La création et la modification sont
+                réservées aux administrateurs.
+              </CardDescription>
+            </div>
+            {canManage && (
+              <div className="shrink-0">
+                <Dialog open={open} onOpenChange={setOpen}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-1" />
+                      Nouveau produit
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Ajouter un produit</DialogTitle>
+                      <DialogDescription>Renseignez les informations du nouveau produit (réservé aux administrateurs).</DialogDescription>
+                    </DialogHeader>
+                    <form
+                      onSubmit={form.handleSubmit((v) => createMutation.mutate(v))}
+                      className="space-y-4"
+                    >
+                      <div className="space-y-1">
+                        <Label>Nom</Label>
+                        <Input {...form.register('name')} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label>Catégorie</Label>
+                          <Select
+                            value={form.watch('category')}
+                            onValueChange={(v) => form.setValue('category', v as ProductCategory)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CATEGORIES.map((c) => (
+                                <SelectItem key={c} value={c}>
+                                  {c}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Unité</Label>
+                          <Input {...form.register('unit')} placeholder="sac, m³…" />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Description</Label>
+                        <Input {...form.register('description')} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Prix unitaire (XOF)</Label>
+                        <Input type="number" step="0.01" {...form.register('unitPrice')} />
+                      </div>
+                      <DialogFooter>
+                        <Button type="submit" disabled={createMutation.isPending}>
+                          {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Créer
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            )}
           </div>
-        </div>
-        {canManage && (
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-1" />
-                Nouveau produit
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Ajouter un produit</DialogTitle>
-                <DialogDescription>Saisissez les informations du nouveau produit.</DialogDescription>
-              </DialogHeader>
-              <form
-                onSubmit={form.handleSubmit((v) => createMutation.mutate(v))}
-                className="space-y-4"
-              >
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label>SKU</Label>
-                    <Input {...form.register('sku')} placeholder="CEM-42.5" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Catégorie</Label>
-                    <Input {...form.register('category')} placeholder="Ciment" />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Nom</Label>
-                  <Input {...form.register('name')} placeholder="Ciment CPA 42.5 - 50kg" />
-                </div>
-                <div className="space-y-1">
-                  <Label>Description</Label>
-                  <Input {...form.register('description')} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label>Prix unitaire</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      {...form.register('unitPrice')}
-                      placeholder="4500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Devise</Label>
-                    <Input {...form.register('currency')} placeholder="XOF" />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={createMutation.isPending}>
-                    {createMutation.isPending && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    Créer
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-        )}
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="py-12 text-center text-muted-foreground">Chargement…</div>
-        ) : products.length === 0 ? (
-          <DataTableEmpty message="Aucun produit — créez-en un pour commencer." />
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Nom</TableHead>
-                <TableHead>Catégorie</TableHead>
-                <TableHead className="text-right">Prix unitaire</TableHead>
-                <TableHead>Statut</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {products.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="font-mono text-xs">{p.sku}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{p.name}</span>
-                    </div>
-                    {p.description && (
-                      <div className="text-xs text-muted-foreground">{p.description}</div>
-                    )}
-                  </TableCell>
-                  <TableCell>{p.category ?? '—'}</TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatCurrency(p.unitPrice, p.currency)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={p.isActive ? 'success' : 'outline'}>
-                      {p.isActive ? 'Actif' : 'Inactif'}
-                    </Badge>
-                  </TableCell>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher…"
+                className="pl-8 w-72 max-w-full"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Catégorie" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Toutes catégories</SelectItem>
+                {CATEGORIES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={activeFilter} onValueChange={setActiveFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Actif" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Tous</SelectItem>
+                <SelectItem value="active">Actifs seulement</SelectItem>
+                <SelectItem value="inactive">Inactifs seulement</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="secondary" size="sm" onClick={loadGraphql}>
+              <Braces className="h-4 w-4 mr-1" />
+              Aperçu catalogue
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {gqlPreview && (
+            <pre className="mb-4 max-h-40 overflow-auto rounded-md border bg-muted/40 p-3 text-[11px] font-mono">
+              {gqlPreview}
+            </pre>
+          )}
+          {isLoading ? (
+            <div className="py-12 text-center text-muted-foreground">Chargement…</div>
+          ) : products.length === 0 ? (
+            <DataTableEmpty message="Aucun produit — créez-en un (ADMIN) ou élargissez les filtres." />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Unité</TableHead>
+                  <TableHead>Nom</TableHead>
+                  <TableHead>Catégorie</TableHead>
+                  <TableHead className="text-right">Prix</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead className="w-12 text-right">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+              </TableHeader>
+              <TableBody>
+                {products.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-mono text-xs">{p.unit}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{p.name}</span>
+                      </div>
+                      {p.description && (
+                        <div className="text-xs text-muted-foreground">{p.description}</div>
+                      )}
+                    </TableCell>
+                    <TableCell>{p.category}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      {formatCurrency(p.unitPrice, p.currency ?? 'XOF')}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={p.isActive ? 'default' : 'outline'}>
+                        {p.isActive ? 'Actif' : 'Inactif'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end">
+                        <RowActionsMenu ariaLabel={`Actions produit ${p.name}`}>
+                          <DropdownMenuItem onClick={() => navigate(`/products/${p.id}`)}>
+                            Détail
+                          </DropdownMenuItem>
+                          {canManage && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setEditProduct(p)
+                                  editForm.reset({
+                                    name: p.name,
+                                    category: p.category,
+                                    unit: p.unit,
+                                    description: p.description ?? '',
+                                    unitPrice: p.unitPrice,
+                                  })
+                                }}
+                              >
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Modifier
+                              </DropdownMenuItem>
+                              {p.isActive && (
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => {
+                                    if (confirm(`Désactiver « ${p.name} » ?`)) {
+                                      deactivateMutation.mutate(p.id)
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Désactiver
+                                </DropdownMenuItem>
+                              )}
+                            </>
+                          )}
+                        </RowActionsMenu>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!detailId} onOpenChange={(o) => !o && navigate('/products', { replace: true })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Détail produit</DialogTitle>
+          </DialogHeader>
+          {loadingDetail || !detailProduct ? (
+            <div className="py-8 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Chargement…
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm">
+              <p>
+                <span className="text-muted-foreground">Nom</span> {detailProduct.name}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Catégorie</span> {detailProduct.category}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Unité</span> {detailProduct.unit}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Prix</span>{' '}
+                {formatCurrency(detailProduct.unitPrice, detailProduct.currency ?? 'XOF')}
+              </p>
+              <p>
+                <span className="text-muted-foreground">Actif</span>{' '}
+                {detailProduct.isActive ? 'oui' : 'non'}
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!editProduct}
+        onOpenChange={(o) => {
+          if (!o) setEditProduct(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier le produit</DialogTitle>
+          </DialogHeader>
+          {editProduct && (
+            <form
+              onSubmit={editForm.handleSubmit((v) =>
+                updateMutation.mutate({ id: editProduct.id, body: v })
+              )}
+              className="space-y-4"
+            >
+              <div className="space-y-1">
+                <Label>Nom</Label>
+                <Input {...editForm.register('name')} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Catégorie</Label>
+                  <Select
+                    value={editForm.watch('category')}
+                    onValueChange={(v) => editForm.setValue('category', v as ProductCategory)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Unité</Label>
+                  <Input {...editForm.register('unit')} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Description</Label>
+                <Input {...editForm.register('description')} />
+              </div>
+              <div className="space-y-1">
+                <Label>Prix unitaire</Label>
+                <Input type="number" step="0.01" {...editForm.register('unitPrice')} />
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Enregistrer
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

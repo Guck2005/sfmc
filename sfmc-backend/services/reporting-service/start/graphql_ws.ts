@@ -3,6 +3,7 @@ import logger from '@adonisjs/core/services/logger'
 import { WebSocketServer } from 'ws'
 import { useServer } from 'graphql-ws/lib/use/ws'
 import { schema } from '../app/graphql/schema.js'
+import { verifyWsConnectionParams } from '../app/services/graphql_auth.js'
 
 /**
  * Attaches a GraphQL-over-WebSocket server on ws://<host>:<port>/graphql
@@ -23,8 +24,18 @@ const poll = setInterval(() => {
   if (httpServer) {
     clearInterval(poll)
     const wsServer = new WebSocketServer({ server: httpServer, path: '/graphql' })
-    useServer({ schema }, wsServer as any)
-    logger.info('[graphql-ws] subscriptions ready on ws://<host>:<port>/graphql')
+    useServer(
+      {
+        schema,
+        onConnect: async (ctx) => {
+          const ok = verifyWsConnectionParams(ctx.connectionParams as Record<string, unknown>)
+          if (!ok) return false
+          return true
+        },
+      },
+      wsServer as any
+    )
+    logger.info('[graphql-ws] subscriptions ready on ws://<host>:<port>/graphql (JWT requis)')
     return
   }
   if (attempts >= MAX_ATTEMPTS) {

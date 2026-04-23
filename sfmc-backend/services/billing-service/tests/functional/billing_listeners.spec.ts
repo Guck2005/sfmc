@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import Invoice from '#models/invoice'
+import CreditNote from '#models/credit_note'
 import ProcessedEvent from '#models/processed_event'
 import { onOrderValidated, onOrderCancelled } from '#listeners/billing_listeners'
 import db from '@adonisjs/lucid/services/db'
@@ -15,6 +16,7 @@ test.group('Billing Listeners', (group) => {
     const eventId = crypto.randomUUID()
     const payload = {
       orderId: crypto.randomUUID(),
+      orderNumber: 'CMD-2026-099999',
       customerId: crypto.randomUUID(),
       totalAmount: 15000,
       currency: 'XOF',
@@ -27,6 +29,8 @@ test.group('Billing Listeners', (group) => {
     assert.isNotNull(invoice)
     assert.equal(invoice!.status, 'PENDING')
     assert.equal(Number(invoice!.amount), 15000)
+    assert.match(invoice!.invoiceNumber, /^FAC-\d{4}-\d{6}$/)
+    assert.equal(invoice!.orderPublicNumber, payload.orderNumber)
 
     // Check if event was processed
     const processed = await ProcessedEvent.find(eventId)
@@ -39,6 +43,8 @@ test.group('Billing Listeners', (group) => {
     // Seed invoice
     await Invoice.create({
       orderId,
+      orderPublicNumber: 'CMD-T-000001',
+      invoiceNumber: 'FAC-T-000001',
       customerId: crypto.randomUUID(),
       amount: 15000,
       currency: 'XOF',
@@ -58,6 +64,8 @@ test.group('Billing Listeners', (group) => {
     // Seed invoice
     await Invoice.create({
       orderId,
+      orderPublicNumber: 'CMD-T-000002',
+      invoiceNumber: 'FAC-T-000002',
       customerId: crypto.randomUUID(),
       amount: 15000,
       currency: 'XOF',
@@ -69,12 +77,18 @@ test.group('Billing Listeners', (group) => {
 
     const invoice = await Invoice.findBy('orderId', orderId)
     assert.equal(invoice!.status, 'REFUNDED')
+
+    const avoir = await CreditNote.findBy('invoiceId', invoice!.id)
+    assert.isNotNull(avoir)
+    assert.equal(Number(avoir!.amount), 15000)
+    assert.include(avoir!.reason ?? '', 'Annulation')
   })
 
   test('listeners are idempotent', async ({ assert }) => {
     const eventId = crypto.randomUUID()
     const payload = {
       orderId: crypto.randomUUID(),
+      orderNumber: 'CMD-2026-088888',
       customerId: crypto.randomUUID(),
       totalAmount: 15000,
       currency: 'XOF',

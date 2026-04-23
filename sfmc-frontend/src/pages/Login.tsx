@@ -43,17 +43,18 @@ export default function LoginPage() {
     try {
       const res = await authService.login(values)
       const payload = jwtDecode<JwtPayload>(res.accessToken)
+      const role = res.user?.role ?? payload.role
       setAuth({
         token: res.accessToken,
         refreshToken: res.refreshToken,
         user: {
           id: res.user?.id ?? payload.sub,
           email: res.user?.email ?? payload.email ?? values.email,
-          role: res.user?.role ?? payload.role,
+          role,
         },
       })
       toast.success('Connexion réussie')
-      navigate('/')
+      navigate(role === 'CLIENT' ? '/my-orders' : '/', { replace: true })
     } catch (err) {
       toast.error(extractErrorMessage(err))
     } finally {
@@ -81,9 +82,9 @@ export default function LoginPage() {
             manufacturière SFMC depuis un tableau de bord unifié.
           </p>
           <ul className="text-sm text-white/85 space-y-1.5 pt-2">
-            <li>• 9 microservices AdonisJS / Node 20</li>
-            <li>• CQRS, Saga et messagerie RabbitMQ</li>
-            <li>• Reporting temps réel via GraphQL Subscriptions</li>
+            <li>• Chaîne complète : commandes, stocks, production, facturation</li>
+            <li>• Données synchronisées entre les équipes commerciales et atelier</li>
+            <li>• Tableaux de bord et alertes actualisés en temps réel</li>
           </ul>
         </div>
         <div className="text-xs text-white/60">

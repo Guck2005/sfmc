@@ -6,7 +6,13 @@ import SagaLog from '#models/saga_log'
 import ProcessedEvent from '#models/processed_event'
 import { canTransition, InvalidTransitionError } from '#services/order_state_machine'
 import { publishEvent } from '#services/rabbitmq'
+import {
+  currentYearFromDb,
+  formatOrderPublicNumber,
+  nextOrderSequence,
+} from '#services/reference_sequence'
 import { checkAvailability } from '#services/inventory_client'
+import { fetchProductSnapshot } from '#services/product_client'
 import { fetchCustomerEmail } from '#services/customer_contact'
 import type { DomainEvent } from '@sfmc/shared-types'
 import {
@@ -58,15 +64,62 @@ export class InsufficientStockError extends Error {
   }
 }
 
-export interface CreateOrderInput {
-  customerId: string
-  lines: Array<{ productId: string; quantity: number; unitPrice: number }>
+export class ProductNotFoundError extends Error {
+  public readonly code = 'PRODUCT_NOT_FOUND'
+  constructor(public productId: string) {
+    super(`Produit inconnu dans le catalogue : ${productId}`)
+  }
 }
 
-async function createPendingOrder(input: CreateOrderInput, totalAmount: number): Promise<Order> {
+export class ProductCatalogUnavailableError extends Error {
+  public readonly code = 'PRODUCT_CATALOG_UNAVAILABLE'
+  constructor() {
+    super('Le service catalogue est momentanément indisponible')
+  }
+}
+
+export interface CreateOrderLineInput {
+  productId: string
+  quantity: number
+  unitPrice: number
+}
+
+export interface CreateOrderInput {
+  customerId: string
+  lines: CreateOrderLineInput[]
+}
+
+type OrderLineWithSnapshot = CreateOrderLineInput & { productName: string }
+
+async function resolveProductSnapshots(lines: CreateOrderLineInput[]): Promise<OrderLineWithSnapshot[]> {
+  const uniqueIds = [...new Set(lines.map((l) => l.productId))]
+  const nameById = new Map<string, string>()
+  await Promise.all(
+    uniqueIds.map(async (productId) => {
+      const r = await fetchProductSnapshot(productId)
+      if (r.status === 'not_found') throw new ProductNotFoundError(productId)
+      if (r.status === 'unavailable') throw new ProductCatalogUnavailableError()
+      nameById.set(productId, r.name)
+    })
+  )
+  return lines.map((line) => ({
+    ...line,
+    productName: nameById.get(line.productId)!,
+  }))
+}
+
+async function createPendingOrder(
+  input: { customerId: string; lines: OrderLineWithSnapshot[] },
+  totalAmount: number
+): Promise<Order> {
   return await db.transaction(async (trx) => {
+    const year = currentYearFromDb()
+    const seq = await nextOrderSequence(trx, year)
+    const orderNumber = formatOrderPublicNumber(year, seq)
+
     const order = await Order.create(
       {
+        orderNumber,
         customerId: input.customerId,
         status: 'PENDING',
         sagaStatus: 'PENDING',
@@ -80,6 +133,7 @@ async function createPendingOrder(input: CreateOrderInput, totalAmount: number):
         {
           orderId: order.id,
           productId: line.productId,
+          productName: line.productName,
           quantity: line.quantity,
           unitPrice: line.unitPrice,
         },
@@ -103,13 +157,14 @@ async function createPendingOrder(input: CreateOrderInput, totalAmount: number):
 }
 
 export async function createOrder(input: CreateOrderInput): Promise<Order> {
-  const totalAmount = input.lines.reduce(
+  const linesWithSnapshot = await resolveProductSnapshots(input.lines)
+  const totalAmount = linesWithSnapshot.reduce(
     (sum, l) => sum + Number(l.unitPrice) * Number(l.quantity),
     0
   )
-  const order = await createPendingOrder(input, totalAmount)
+  const order = await createPendingOrder({ customerId: input.customerId, lines: linesWithSnapshot }, totalAmount)
 
-  for (const line of input.lines) {
+  for (const line of linesWithSnapshot) {
     const result = await checkAvailability({ productId: line.productId, quantity: line.quantity })
     if (result === null) {
       await cancelOrderFromSaga(order.id, 'inventory_service_unavailable', order.id)
@@ -123,8 +178,14 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
 
   const payload: OrderCreatedPayload = {
     orderId: order.id,
+    orderNumber: order.orderNumber,
     customerId: order.customerId,
-    lines: input.lines,
+    lines: linesWithSnapshot.map(({ productId, quantity, unitPrice, productName }) => ({
+      productId,
+      quantity,
+      unitPrice,
+      productName,
+    })),
     totalAmount,
   }
   await publishEvent(
@@ -144,7 +205,9 @@ export async function transitionStatus(
   to: OrderStatus
 ): Promise<Order> {
   const order = await Order.findOrFail(orderId)
-  if (!canTransition(order.status, to)) {
+  // TRANSITION explicite vers IN_PRODUCTION : l’opérateur confirme qu’on passe par la prod (requiresProduction=true).
+  const requiresProduction = to === 'IN_PRODUCTION'
+  if (!canTransition(order.status, to, requiresProduction)) {
     throw new InvalidTransitionError(order.status, to)
   }
   order.status = to
@@ -154,6 +217,7 @@ export async function transitionStatus(
     const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
     const payload: OrderShippedPayload = {
       orderId: order.id,
+      orderNumber: order.orderNumber,
       customerId: order.customerId,
       customerEmail,
       shippedAt: new Date().toISOString(),
@@ -170,6 +234,7 @@ export async function transitionStatus(
     const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
     const payload: OrderDeliveredPayload = {
       orderId: order.id,
+      orderNumber: order.orderNumber,
       customerId: order.customerId,
       customerEmail,
       deliveredAt: new Date().toISOString(),
@@ -208,6 +273,7 @@ export async function cancelOrder(orderId: string, reason = 'manual_cancellation
   const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
   const payload: OrderCancelledPayload = {
     orderId: order.id,
+    orderNumber: order.orderNumber,
     customerId: order.customerId,
     customerEmail,
     reason,
@@ -242,9 +308,11 @@ export async function validateOrder(orderId: string, sagaId?: string): Promise<O
   const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
   const payload: OrderValidatedPayload = {
     orderId: order.id,
+    orderNumber: order.orderNumber,
     customerId: order.customerId,
     customerEmail,
     totalAmount: Number(order.totalAmount),
+    currency: 'XOF',
   }
   await publishEvent(
     createEvent(
@@ -279,6 +347,7 @@ export async function cancelOrderFromSaga(
   const customerEmail = (await fetchCustomerEmail(order.customerId)) ?? undefined
   const payload: OrderCancelledPayload = {
     orderId: order.id,
+    orderNumber: order.orderNumber,
     customerId: order.customerId,
     customerEmail,
     reason,

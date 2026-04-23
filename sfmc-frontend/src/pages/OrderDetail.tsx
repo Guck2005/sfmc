@@ -1,5 +1,6 @@
-import { useParams, Link } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   ArrowLeft,
@@ -13,14 +14,21 @@ import {
   XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ordersService } from '@/services'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
-import type { OrderStatus } from '@/types/domain'
+import type { Order, OrderStatus } from '@/types/domain'
 
 const STEPS: { status: OrderStatus; label: string; icon: typeof Circle }[] = [
   { status: 'PENDING', label: 'En attente', icon: Circle },
@@ -31,48 +39,103 @@ const STEPS: { status: OrderStatus; label: string; icon: typeof Circle }[] = [
   { status: 'DELIVERED', label: 'Livrée', icon: CheckCircle2 },
 ]
 
-const NEXT_TRANSITIONS: Partial<Record<OrderStatus, { to: OrderStatus; label: string }[]>> = {
-  VALIDATED: [{ to: 'READY', label: 'Marquer prête' }],
-  IN_PRODUCTION: [{ to: 'READY', label: 'Marquer prête' }],
-  READY: [{ to: 'SHIPPED', label: 'Expédier' }],
-  SHIPPED: [{ to: 'DELIVERED', label: 'Livrer' }],
+const CANCELLABLE: OrderStatus[] = ['PENDING', 'VALIDATED', 'IN_PRODUCTION', 'READY']
+
+const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  PENDING: 'En attente',
+  VALIDATED: 'Validée',
+  IN_PRODUCTION: 'En production',
+  READY: 'Prête',
+  SHIPPED: 'Expédiée',
+  DELIVERED: 'Livrée',
+  CANCELLED: 'Annulée',
 }
 
-const CANCELLABLE: OrderStatus[] = ['PENDING', 'VALIDATED', 'IN_PRODUCTION', 'READY']
+/** Même ordre que `WORKFLOW_STATUSES` côté order-service — tous sélectionnables (y compris retour arrière). */
+const ALL_MANAGEABLE_ORDER_STATUSES: OrderStatus[] = [
+  'PENDING',
+  'VALIDATED',
+  'IN_PRODUCTION',
+  'READY',
+  'SHIPPED',
+  'DELIVERED',
+]
 
 export default function OrderDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const role = useAuthStore((s) => s.user?.role)
   const userId = useAuthStore((s) => s.user?.id)
   const canManage = role === 'ADMIN' || role === 'OPERATOR'
+  const isAdmin = role === 'ADMIN'
+  const [selectedNext, setSelectedNext] = useState<OrderStatus | ''>('')
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', id],
     queryFn: () => ordersService.get(id!),
     enabled: !!id,
     refetchInterval: 10_000,
+    placeholderData: keepPreviousData,
   })
 
   const transitionMutation = useMutation({
     mutationFn: (nextStatus: OrderStatus) => ordersService.updateStatus(id!, nextStatus),
-    onSuccess: (_, next) => {
-      toast.success(`Commande → ${next}`)
-      qc.invalidateQueries({ queryKey: ['order', id] })
-      qc.invalidateQueries({ queryKey: ['orders'] })
+    onSuccess: (updated, nextStatus) => {
+      setSelectedNext('')
+      qc.setQueryData<Order | undefined>(['order', id], (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          status: updated.status,
+          updatedAt: updated.updatedAt,
+        }
+      })
+      const label = STEPS.find((s) => s.status === nextStatus)?.label ?? nextStatus
+      toast.success(`Statut mis à jour : ${label}`)
+      void qc.invalidateQueries({ queryKey: ['order', id] })
+      void qc.invalidateQueries({ queryKey: ['orders'] })
     },
-    onError: (err) => toast.error(extractErrorMessage(err)),
+    onError: (err) => {
+      setSelectedNext('')
+      toast.error(extractErrorMessage(err))
+    },
   })
 
   const cancelMutation = useMutation({
     mutationFn: () => ordersService.cancel(id!),
-    onSuccess: () => {
-      toast.success('Commande annulée — compensation Saga en cours')
-      qc.invalidateQueries({ queryKey: ['order', id] })
-      qc.invalidateQueries({ queryKey: ['orders'] })
+    onSuccess: (updated) => {
+      setSelectedNext('')
+      qc.setQueryData<Order | undefined>(['order', id], (prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          status: updated.status,
+          updatedAt: updated.updatedAt,
+        }
+      })
+      toast.success('Commande annulée — traitements associés en cours')
+      void qc.invalidateQueries({ queryKey: ['order', id] })
+      void qc.invalidateQueries({ queryKey: ['orders'] })
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })
+
+  const returnHrefEarly = role === 'CLIENT' ? '/my-orders' : '/orders'
+
+  const deleteMutation = useMutation({
+    mutationFn: () => ordersService.remove(id!),
+    onSuccess: () => {
+      toast.success('Commande supprimée')
+      void qc.invalidateQueries({ queryKey: ['orders'] })
+      navigate(returnHrefEarly)
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  })
+
+  useEffect(() => {
+    setSelectedNext('')
+  }, [order?.status, order?.id])
 
   if (isLoading) {
     return <div className="py-12 text-center text-muted-foreground">Chargement…</div>
@@ -93,14 +156,22 @@ export default function OrderDetailPage() {
 
   const currentIndex = STEPS.findIndex((s) => s.status === order.status)
   const isCancelled = order.status === 'CANCELLED'
-  const nextActions = NEXT_TRANSITIONS[order.status] ?? []
+  /** Saga nominal : `DELIVERED` est terminal (plus de PUT status). */
+  const isDeliveredTerminal = order.status === 'DELIVERED'
+  const canChangeStatus = canManage && !isCancelled && !isDeliveredTerminal
+
   const canCancel = CANCELLABLE.includes(order.status)
   // Un CLIENT ne peut annuler que ses propres commandes (la policy backend le
   // vérifie aussi, mais on cache le bouton pour ne pas induire en erreur)
   const clientOwnsThis = role !== 'CLIENT' || order.customerId === userId
 
-  const returnHref = role === 'CLIENT' ? '/my-orders' : '/orders'
+  const returnHref = returnHrefEarly
   const returnLabel = role === 'CLIENT' ? 'Mes commandes' : 'Commandes'
+
+  const selectValue =
+    selectedNext !== '' && ALL_MANAGEABLE_ORDER_STATUSES.includes(selectedNext as OrderStatus)
+      ? selectedNext
+      : undefined
 
   return (
     <div className="space-y-6">
@@ -111,7 +182,14 @@ export default function OrderDetailPage() {
             {returnLabel}
           </Link>
         </Button>
-        <h2 className="text-lg font-semibold font-mono">{order.id}</h2>
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold">{order.orderNumber ?? order.id}</h2>
+          {!order.orderNumber ? (
+            <p className="truncate font-mono text-xs text-muted-foreground" title={order.id}>
+              {order.id}
+            </p>
+          ) : null}
+        </div>
         <Badge
           variant={
             isCancelled
@@ -121,24 +199,43 @@ export default function OrderDetailPage() {
                 : 'secondary'
           }
         >
-          {order.status}
+          {ORDER_STATUS_LABELS[order.status] ?? order.status}
         </Badge>
 
-        {canManage && !isCancelled && (
-          <div className="ml-auto flex flex-wrap gap-2">
-            {nextActions.map((action) => (
-              <Button
-                key={action.to}
-                size="sm"
-                onClick={() => transitionMutation.mutate(action.to)}
-                disabled={transitionMutation.isPending}
-              >
-                {transitionMutation.isPending && (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                )}
-                {action.label}
-              </Button>
-            ))}
+        {canChangeStatus && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Select
+              value={selectValue}
+              onValueChange={(v) => setSelectedNext(v as OrderStatus)}
+            >
+              <SelectTrigger className="w-[min(100vw-2rem,280px)] h-9">
+                <SelectValue placeholder="Choisir le statut cible…" />
+              </SelectTrigger>
+              <SelectContent>
+                {ALL_MANAGEABLE_ORDER_STATUSES.map((to) => (
+                  <SelectItem key={to} value={to}>
+                    {STEPS.find((s) => s.status === to)?.label ?? to}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              disabled={
+                !selectedNext ||
+                selectedNext === order.status ||
+                transitionMutation.isPending
+              }
+              onClick={() => {
+                if (!selectedNext) return
+                transitionMutation.mutate(selectedNext)
+              }}
+            >
+              {transitionMutation.isPending && (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              )}
+              Appliquer
+            </Button>
           </div>
         )}
         {!isCancelled && canCancel && clientOwnsThis && (
@@ -161,13 +258,59 @@ export default function OrderDetailPage() {
             Annuler
           </Button>
         )}
+        {isAdmin && !isCancelled && canCancel && (
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              if (
+                confirm(
+                  'Supprimer définitivement cette commande ? Action réservée aux administrateurs ; stocks et facturation seront ajustés.'
+                )
+              ) {
+                deleteMutation.mutate()
+              }
+            }}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            Supprimer définitivement
+          </Button>
+        )}
+        {canManage && isDeliveredTerminal && (
+          <p className="ml-auto text-xs text-muted-foreground max-w-sm text-right">
+            Commande livrée : le statut ne peut plus être modifié depuis cette page.
+          </p>
+        )}
       </div>
+
+      {canChangeStatus && (
+        <Card className="border-muted bg-muted/20">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm font-medium text-foreground">À propos des statuts</CardTitle>
+            <CardDescription className="text-xs leading-relaxed space-y-2 block">
+              <span className="block">
+                <strong>Validée</strong> : en principe <strong>automatique</strong> dès que le stock est réservé
+                pour la commande. Le menu permet aussi de corriger manuellement les états (y compris revenir en
+                arrière), sauf une fois la commande <strong>livrée</strong>.
+              </span>
+              <span className="block pt-1">
+                <strong>Expédiée</strong> : la marchandise <strong>part</strong>. <strong>Livrée</strong> :{' '}
+                <strong>réception confirmée</strong> — état final sans changement de statut par ce menu. Pour
+                une annulation, utilisez le bouton dédié.
+              </span>
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <ShoppingCart className="h-4 w-4" />
-            Timeline Saga
+            Étapes de la commande
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -241,7 +384,14 @@ export default function OrderDetailPage() {
               <TableBody>
                 {order.lines?.map((l, i) => (
                   <TableRow key={i}>
-                    <TableCell className="font-mono text-xs">{l.productId}</TableCell>
+                    <TableCell>
+                      <div className="font-medium text-sm">
+                        {(l.productName && l.productName.trim()) || 'Libellé non enregistré'}
+                      </div>
+                      {!(l.productName && l.productName.trim()) && (
+                        <div className="text-xs text-muted-foreground font-mono">{l.productId}</div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right font-mono">{l.quantity}</TableCell>
                     <TableCell className="text-right font-mono">
                       {formatCurrency(Number(l.unitPrice), order.currency)}
@@ -261,9 +411,11 @@ export default function OrderDetailPage() {
             <CardTitle className="text-base">Récapitulatif</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Client</span>
-              <span className="font-mono text-xs">{order.customerId.slice(0, 8)}</span>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground shrink-0">Client</span>
+              <span className="text-right text-sm font-medium">
+                {order.customerDisplayName ?? order.customerId.slice(0, 8)}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Créée</span>

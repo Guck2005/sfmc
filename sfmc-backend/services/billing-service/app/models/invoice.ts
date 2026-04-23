@@ -10,6 +10,13 @@ export default class Invoice extends BaseModel {
   @column()
   declare orderId: string
 
+  /** Référence commande affichable (copie depuis order.validated). */
+  @column({ columnName: 'order_public_number' })
+  declare orderPublicNumber: string | null
+
+  @column({ columnName: 'invoice_number' })
+  declare invoiceNumber: string
+
   @column()
   declare customerId: string | null
 

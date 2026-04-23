@@ -13,6 +13,10 @@ export default class OrderLine extends BaseModel {
   @column()
   declare productId: string
 
+  /** Libellé catalogue figé au moment de la commande */
+  @column()
+  declare productName: string | null
+
   @column({ consume: (v) => Number(v) })
   declare quantity: number
 

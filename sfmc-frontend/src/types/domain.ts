@@ -5,18 +5,23 @@ export interface User {
   lastName?: string
   phone?: string
   role: 'ADMIN' | 'OPERATOR' | 'CLIENT'
+  isActive?: boolean
   createdAt: string
   updatedAt: string
 }
 
+export type ProductCategory = 'CIMENT' | 'FER' | 'BRIQUES' | 'GRANULATS'
+
 export interface Product {
   id: string
-  sku: string
+  /** Absent côté API produit actuel ; repli UI sur `unit` ou tronqué `id`. */
+  sku?: string
   name: string
-  description?: string
-  category?: string
+  description?: string | null
+  category: ProductCategory
+  unit: string
   unitPrice: number
-  currency: string
+  currency?: string
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -52,6 +57,41 @@ export interface StockAlert {
   createdAt: string
 }
 
+export interface StockMovement {
+  id: string
+  stockId: string
+  type: 'IN' | 'OUT' | 'ADJUSTMENT'
+  quantity: number
+  origin: string
+  referenceId?: string | null
+  date?: string
+}
+
+export interface CheckAvailabilityResult {
+  available: boolean
+  currentStock: number
+  productId: string
+}
+
+export interface ReserveReleaseLine {
+  productId: string
+  quantity: number
+}
+
+/** Ligne renvoyée par `criticalStocks` (GraphQL inventaire). */
+export interface CriticalStockGqlRow {
+  id: string
+  productId: string
+  warehouseId: string
+  stockType: string
+  quantity: number
+  reserved: number
+  available: number
+  threshold: number
+  isCritical: boolean
+  warehouse?: { id: string; name: string } | null
+}
+
 export type OrderStatus =
   | 'PENDING'
   | 'VALIDATED'
@@ -64,13 +104,19 @@ export type OrderStatus =
 export interface OrderLine {
   id?: string
   productId: string
+  /** Libellé figé à la commande (order-service) ; peut être absent sur d’anciennes lignes. */
+  productName?: string | null
   quantity: number
   unitPrice: number
 }
 
 export interface Order {
   id: string
+  /** Référence affichable (ex. CMD-2026-000001), distincte de l’UUID `id`. */
+  orderNumber?: string
   customerId: string
+  /** Libellé affichable (nom ou email), renseigné par order-service sur la liste. */
+  customerDisplayName?: string | null
   status: OrderStatus
   totalAmount: number
   currency: string
@@ -84,51 +130,82 @@ export type ProductionStatus =
   | 'IN_PROGRESS'
   | 'QUALITY_CHECK'
   | 'COMPLETED'
-  | 'FAILED'
+  | 'REJECTED'
+  | 'CANCELLED'
 
 export interface ProductionOrder {
   id: string
-  orderId?: string
+  orderId: string
   productId: string
   quantity: number
   status: ProductionStatus
+  machineId?: string | null
   startedAt?: string
   completedAt?: string
-  qualityScore?: number
   createdAt: string
+  updatedAt?: string
 }
 
-export type InvoiceStatus = 'DRAFT' | 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELLED'
+export type MachineStatus = 'AVAILABLE' | 'IN_USE' | 'MAINTENANCE'
+
+export interface Machine {
+  id: string
+  name: string
+  category: ProductCategory | null
+  status: MachineStatus
+  createdAt: string
+  updatedAt?: string
+}
+
+export type InvoiceStatus = 'PENDING' | 'PAID' | 'CANCELLED' | 'REFUNDED'
 
 export interface Invoice {
   id: string
-  invoiceNumber: string
+  invoiceNumber?: string
+  /** Numéro commande affichable (copie lors de la facturation). */
+  orderPublicNumber?: string | null
   orderId: string
-  customerId: string
+  customerId: string | null
   amount: number
   currency: string
   status: InvoiceStatus
-  dueDate: string
+  /** Non présent sur le schéma minimal factures ; repli UI sur `createdAt`. */
+  dueDate?: string
   paidAt?: string
   createdAt: string
+  payments?: Payment[]
 }
 
 export interface Payment {
   id: string
   invoiceId: string
   amount: number
-  method: 'MOBILE_MONEY' | 'BANK_TRANSFER' | 'CASH' | 'CARD'
+  method: 'MOBILE_MONEY' | 'BANK_TRANSFER' | 'CASH'
   reference?: string
+  createdAt: string
+}
+
+export interface CreditNote {
+  id: string
+  invoiceId: string
+  orderId: string
+  customerId: string | null
+  amount: number
+  currency: string
+  reason: string | null
   createdAt: string
 }
 
 export interface Notification {
   id: string
-  type: 'EMAIL' | 'SMS' | 'PUSH'
+  /** Code métier (ex. ORDER_VALIDATED). */
+  type: string
+  channel: string
   recipient: string
-  subject?: string
-  status: 'SENT' | 'FAILED' | 'PENDING'
+  status: 'SENT' | 'FAILED' | 'PENDING' | string
+  payload?: string | null
   createdAt: string
+  updatedAt?: string
 }
 
 export interface StatusCount {
@@ -150,6 +227,50 @@ export interface DashboardKpis {
   topProducts?: Array<{ productId: string; name: string; totalSold: number }>
   revenueByDay?: Array<{ date: string; amount: number }>
 }
+
+export interface SalesReport {
+  period: { from: string | null; to: string | null }
+  ordersByStatus: StatusCount[]
+  totalOrders: number
+  totalRevenue: number
+  averageOrderValue: number
+}
+
+export interface ProductionReport {
+  period: { from: string | null; to: string | null }
+  byStatus: StatusCount[]
+  totalProductionOrders: number
+  completedCount: number
+  rejectedCount: number
+}
+
+export interface QualityReport {
+  period: { from: string | null; to: string | null }
+  totalInspected: number
+  completedCount: number
+  rejectedCount: number
+  failureRate: number
+  topRejectedProducts: Array<{ productId: string; rejectedCount: number }>
+}
+
+export interface StockReportSnapshot {
+  productId: string
+  warehouseId: string | null
+  quantity: number
+  reserved: number
+  threshold: number
+  snapshotAt: string
+}
+
+export interface StockReport {
+  period: { from: string | null; to: string | null }
+  warehouseId: string | null
+  totalAlerts: number
+  distinctProducts: number
+  latestSnapshots: StockReportSnapshot[]
+}
+
+export type ReportExportType = 'sales' | 'production' | 'quality' | 'stock' | 'orders' | 'invoices'
 
 export interface PaginatedResponse<T> {
   data: T[]

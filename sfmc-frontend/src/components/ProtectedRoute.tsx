@@ -16,11 +16,13 @@ export function ProtectedRoute({ roles }: Props) {
   }
 
   if (roles && !hasRole(...roles)) {
+    const allowed = roles.join(' ou ')
     return (
       <div className="p-10 text-center">
         <h2 className="text-xl font-semibold mb-2">Accès refusé</h2>
         <p className="text-muted-foreground">
-          Votre profil ({roles.join(', ')} requis) n'a pas les droits pour cette section.
+          Cette section est réservée aux profils : <span className="font-medium text-foreground">{allowed}</span>.
+          Votre compte n’a pas les droits nécessaires.
         </p>
       </div>
     )

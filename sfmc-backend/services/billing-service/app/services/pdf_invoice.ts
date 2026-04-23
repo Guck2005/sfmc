@@ -12,6 +12,8 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
   const payments = await Payment.query().where('invoiceId', invoice.id).orderBy('createdAt', 'asc')
   const totalPaid = payments.reduce((acc, p) => acc + Number(p.amount), 0)
   const remaining = Math.max(0, Number(invoice.amount) - totalPaid)
+  const displayInvoiceNo = invoice.invoiceNumber ?? invoice.id
+  const orderLabel = invoice.orderPublicNumber ?? invoice.orderId
 
   const doc = new PDFDocument({ size: 'A4', margin: 50 })
   const stream = new PassThrough()
@@ -34,7 +36,7 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
     .fillColor('#000')
     .text('FACTURE', 400, 50, { align: 'right' })
     .fontSize(10)
-    .text(`N° : ${invoice.id}`, 400, 75, { align: 'right' })
+    .text(`N° : ${displayInvoiceNo}`, 400, 75, { align: 'right' })
     .text(`Date : ${invoice.createdAt?.toFormat('dd/MM/yyyy') ?? '-'}`, 400, 90, { align: 'right' })
     .text(`Statut : ${invoice.status}`, 400, 105, { align: 'right' })
 
@@ -48,7 +50,7 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
     .text('Client', 50, 150, { underline: true })
     .fontSize(10)
     .text(`Client ID : ${invoice.customerId ?? '(anonyme)'}`, 50, 168)
-    .text(`Commande  : ${invoice.orderId}`, 50, 183)
+    .text(`Commande  : ${orderLabel}`, 50, 183)
 
   // ---- Lines table ----------------------------------------------------------
   const tableTop = 230
@@ -69,7 +71,7 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
   doc
     .fillColor('#000')
     .fontSize(10)
-    .text(`Commande ${invoice.orderId}`, 50, row, { width: 240 })
+    .text(`Commande ${orderLabel}`, 50, row, { width: 240 })
     .text('1', 300, row, { width: 60, align: 'right' })
     .text(formatAmount(invoice.amount, invoice.currency), 370, row, { width: 80, align: 'right' })
     .text(formatAmount(invoice.amount, invoice.currency), 460, row, { width: 80, align: 'right' })

@@ -92,7 +92,7 @@ if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
   exit 2
 fi
 
-STOCKS="$(curl -sS "$INVENTORY_URL/api/v1/stocks")"
+STOCKS="$(curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" "$INVENTORY_URL/api/v1/stocks")"
 PRODUCT_ID="$(echo "$STOCKS" | jq -r '(.data // .)[] | select(.stockType=="FINISHED_PRODUCT" and (.quantity|tonumber) - (.reserved|tonumber) >= 1) | .productId' | head -n 1)"
 if [ -z "$PRODUCT_ID" ] || [ "$PRODUCT_ID" = "null" ]; then
   echo "!! Aucun produit FINISHED_PRODUCT avec stock > 0 — certaines assertions seront FAIL"
@@ -231,7 +231,8 @@ echo "=== 4. CU-02 Production (5) ==="
 
 total_finished() {
   local pid="$1"
-  curl -sS "$INVENTORY_URL/api/v1/stocks?productId=$pid" \
+  curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "$INVENTORY_URL/api/v1/stocks?productId=$pid" \
     | jq '[(.data // [])[] | select(.stockType=="FINISHED_PRODUCT") | (.quantity|tonumber)] | add // 0'
 }
 
@@ -246,6 +247,7 @@ if [ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "null" ]; then
     '{productId:$pid, quantity:3, orderId:$oid}')
   PO_RESP="$(curl -sS -w "\n%{http_code}" -X POST \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
     -d "$PO_PAYLOAD" \
     "$PRODUCTION_URL/api/v1/production-orders")"
   PO_CODE="$(echo "$PO_RESP" | tail -n 1)"
@@ -263,13 +265,16 @@ fi
 
 if [ -n "$PO_ID" ]; then
   curl -sS -X PUT -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
     -d '{"status":"IN_PROGRESS"}' \
     "$PRODUCTION_URL/api/v1/production-orders/$PO_ID/status" >/dev/null || true
   curl -sS -X PUT -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
     -d '{"status":"QUALITY_CHECK"}' \
     "$PRODUCTION_URL/api/v1/production-orders/$PO_ID/status" >/dev/null || true
 
   QC_CODE="$(http_code -X POST -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
     -d '{"passed":true}' \
     "$PRODUCTION_URL/api/v1/production-orders/$PO_ID/quality")"
 else
@@ -283,7 +288,8 @@ fi
 wait_ms 3500
 
 if [ -n "$PO_ID" ]; then
-  GET_PO="$(curl -sS "$PRODUCTION_URL/api/v1/production-orders/$PO_ID")"
+  GET_PO="$(curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "$PRODUCTION_URL/api/v1/production-orders/$PO_ID")"
   PO_STATUS="$(jqval "$GET_PO" '.data.status // empty')"
 else
   PO_STATUS=""
@@ -326,7 +332,8 @@ BASELINE_CRIT="$(curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
 BASELINE_COUNT="$(jqval "$BASELINE_CRIT" '(.data // []) | length')"
 
 if [ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "null" ]; then
-  STOCK_INFO="$(curl -sS "$INVENTORY_URL/api/v1/stocks?productId=$PRODUCT_ID")"
+  STOCK_INFO="$(curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "$INVENTORY_URL/api/v1/stocks?productId=$PRODUCT_ID")"
   STOCK_ID="$(jqval "$STOCK_INFO" '(.data // [])[0].id // empty')"
   STOCK_Q="$(jqval "$STOCK_INFO" '(.data // [])[0].quantity // 0')"
   STOCK_R="$(jqval "$STOCK_INFO" '(.data // [])[0].reserved // 0')"
@@ -334,13 +341,17 @@ if [ -n "$PRODUCT_ID" ] && [ "$PRODUCT_ID" != "null" ]; then
   AVAIL=$((STOCK_Q - STOCK_R))
   NEW_THRESHOLD=$((AVAIL + 10))
 
-  TH_CODE="$(http_code -X PUT -H "Content-Type: application/json" \
+  TH_CODE="$(http_code -X PUT \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
     -d "{\"threshold\":$NEW_THRESHOLD}" \
     "$INVENTORY_URL/api/v1/stocks/$STOCK_ID/threshold")"
 
   MV_PAYLOAD=$(jq -n --arg sid "$STOCK_ID" \
     '{stockId:$sid, type:"OUT", quantity:1, origin:"smoke_cu03"}')
-  MV_CODE="$(http_code -X POST -H "Content-Type: application/json" \
+  MV_CODE="$(http_code -X POST \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
     -d "$MV_PAYLOAD" \
     "$INVENTORY_URL/api/v1/stocks/movements")"
 else
@@ -370,10 +381,14 @@ CRIT_COUNT_AFTER="$(jqval "$CRIT_AFTER" '(.data // []) | length')"
 
 # Rollback best-effort
 if [ -n "$STOCK_ID" ]; then
-  curl -sS -X PUT -H "Content-Type: application/json" \
+  curl -sS -X PUT \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
     -d "{\"threshold\":$STOCK_T_ORIG}" \
     "$INVENTORY_URL/api/v1/stocks/$STOCK_ID/threshold" >/dev/null 2>&1 || true
-  curl -sS -X POST -H "Content-Type: application/json" \
+  curl -sS -X POST \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
     -d "$(jq -n --arg sid "$STOCK_ID" '{stockId:$sid,type:"IN",quantity:1,origin:"smoke_cu03_rollback"}')" \
     "$INVENTORY_URL/api/v1/stocks/movements" >/dev/null 2>&1 || true
 fi

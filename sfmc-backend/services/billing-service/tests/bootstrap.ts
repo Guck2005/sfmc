@@ -5,6 +5,11 @@ import type { Config } from '@japa/runner/types'
 import { pluginAdonisJS } from '@japa/plugin-adonisjs'
 import testUtils from '@adonisjs/core/services/test_utils'
 
+async function migrateTestDatabase() {
+  await testUtils.boot()
+  return await testUtils.db().migrate()
+}
+
 /**
  * This file is imported by the "bin/test.ts" entrypoint file
  */
@@ -23,7 +28,7 @@ export const plugins: Config['plugins'] = [assert(), apiClient(), pluginAdonisJS
  * The teardown functions are executed after all the tests
  */
 export const runnerHooks: Required<Pick<Config, 'setup' | 'teardown'>> = {
-  setup: [],
+  setup: [migrateTestDatabase],
   teardown: [],
 }
 

@@ -69,17 +69,28 @@
 @layer base {
   * {
     @apply border-border;
-    font-family: 'Satoshi', system-ui, sans-serif;
   }
   html {
-    font-family: 'Satoshi', system-ui, sans-serif;
+    @apply font-sans;
   }
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: 'Satoshi', system-ui, sans-serif;
+    @apply bg-background text-foreground antialiased font-sans;
     font-weight: 400;
     font-feature-settings: 'rlig' 1, 'calt' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  code,
+  kbd,
+  samp,
+  pre {
+    @apply font-sans;
+  }
+}
+
+/* Recharts n’hérite pas toujours du body : forcer Satoshi sur les libellés SVG */
+.recharts-wrapper,
+.recharts-cartesian-axis-tick-value,
+.recharts-legend-wrapper {
+  font-family: 'Satoshi', sans-serif !important;
 }

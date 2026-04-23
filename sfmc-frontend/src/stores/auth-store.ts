@@ -7,7 +7,8 @@ interface AuthState {
   token: string | null
   refreshToken: string | null
   user: AuthUser | null
-  setAuth: (payload: { token: string; refreshToken?: string; user: AuthUser }) => void
+  /** Met à jour le jeton (refresh) ou la session complète (login). Champs absents = conservés. */
+  setAuth: (payload: { token?: string; refreshToken?: string | null; user?: AuthUser | null }) => void
   clearAuth: () => void
   isAuthenticated: () => boolean
   hasRole: (...roles: UserRole[]) => boolean
@@ -19,9 +20,13 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       refreshToken: null,
       user: null,
-      setAuth: ({ token, refreshToken, user }) => {
-        set({ token, refreshToken: refreshToken ?? null, user })
-      },
+      setAuth: (payload) =>
+        set((s) => ({
+          token: payload.token !== undefined ? payload.token : s.token,
+          refreshToken:
+            payload.refreshToken !== undefined ? payload.refreshToken : s.refreshToken,
+          user: payload.user !== undefined ? payload.user : s.user,
+        })),
       clearAuth: () => set({ token: null, refreshToken: null, user: null }),
       isAuthenticated: () => {
         const token = get().token

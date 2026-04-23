@@ -1,8 +1,13 @@
 import { test } from '@japa/runner'
-import { canTransition, InvalidTransitionError, TRANSITIONS } from '#services/order_state_machine'
+import {
+  canTransition,
+  InvalidTransitionError,
+  TRANSITIONS,
+  WORKFLOW_STATUSES,
+} from '#services/order_state_machine'
 
 test.group('Order State Machine', () => {
-  test('les transitions autorisées suivent la matrice métier', ({ assert }) => {
+  test('TRANSITIONS décrit le chemin nominal saga (documentation)', ({ assert }) => {
     assert.deepEqual(TRANSITIONS.PENDING, ['VALIDATED', 'CANCELLED'])
     assert.deepEqual(TRANSITIONS.VALIDATED, ['IN_PRODUCTION', 'READY', 'CANCELLED'])
     assert.deepEqual(TRANSITIONS.IN_PRODUCTION, ['READY', 'CANCELLED'])
@@ -10,33 +15,42 @@ test.group('Order State Machine', () => {
     assert.deepEqual(TRANSITIONS.SHIPPED, ['DELIVERED'])
   })
 
-  test('Transitions valides : PENDING -> VALIDATED, PENDING -> CANCELLED', ({ assert }) => {
-    assert.isTrue(canTransition('PENDING', 'VALIDATED'))
+  test('WORKFLOW_STATUSES liste les 6 états éditables par PUT status', ({ assert }) => {
+    assert.equal(WORKFLOW_STATUSES.length, 6)
+    assert.isTrue(WORKFLOW_STATUSES.includes('VALIDATED'))
+    assert.isFalse(WORKFLOW_STATUSES.includes('CANCELLED' as any))
+  })
+
+  test('canTransition : annulation depuis les états autorisés', ({ assert }) => {
     assert.isTrue(canTransition('PENDING', 'CANCELLED'))
-  })
-
-  test('Transitions valides : VALIDATED -> READY, READY -> SHIPPED, SHIPPED -> DELIVERED', ({ assert }) => {
-    assert.isTrue(canTransition('VALIDATED', 'READY'))
-    assert.isTrue(canTransition('READY', 'SHIPPED'))
-    assert.isTrue(canTransition('SHIPPED', 'DELIVERED'))
-  })
-
-  test('Transitions invalides : PENDING -> SHIPPED retourne false (doit throw dans le service)', ({ assert }) => {
-    assert.isFalse(canTransition('PENDING', 'SHIPPED'))
-  })
-
-  test('Transitions invalides : DELIVERED -> CANCELLED', ({ assert }) => {
+    assert.isTrue(canTransition('VALIDATED', 'CANCELLED'))
+    assert.isTrue(canTransition('IN_PRODUCTION', 'CANCELLED'))
+    assert.isTrue(canTransition('READY', 'CANCELLED'))
+    assert.isFalse(canTransition('SHIPPED', 'CANCELLED'))
     assert.isFalse(canTransition('DELIVERED', 'CANCELLED'))
   })
 
-  test('Transitions invalides : CANCELLED -> VALIDATED', ({ assert }) => {
+  test('canTransition : depuis CANCELLED tout est refusé', ({ assert }) => {
     assert.isFalse(canTransition('CANCELLED', 'VALIDATED'))
+    assert.isFalse(canTransition('CANCELLED', 'PENDING'))
   })
 
-  test('Transition VALIDATED -> IN_PRODUCTION valide uniquement si requiresProduction = true', ({ assert }) => {
+  test('canTransition : retours en arrière autorisés (back-office), sauf depuis LIVRÉE', ({ assert }) => {
+    assert.isTrue(canTransition('READY', 'VALIDATED'))
+    assert.isTrue(canTransition('SHIPPED', 'IN_PRODUCTION'))
+    assert.isTrue(canTransition('PENDING', 'SHIPPED'))
+    assert.isFalse(canTransition('DELIVERED', 'PENDING'))
+    assert.isFalse(canTransition('DELIVERED', 'VALIDATED'))
+  })
+
+  test('canTransition : VALIDATED -> IN_PRODUCTION exige le flag production', ({ assert }) => {
     assert.isTrue(canTransition('VALIDATED', 'IN_PRODUCTION', true))
     assert.isFalse(canTransition('VALIDATED', 'IN_PRODUCTION', false))
-    assert.isFalse(canTransition('VALIDATED', 'IN_PRODUCTION')) // false by default
+    assert.isFalse(canTransition('VALIDATED', 'IN_PRODUCTION'))
+  })
+
+  test('canTransition : READY -> IN_PRODUCTION autorisé (flag true côté service)', ({ assert }) => {
+    assert.isTrue(canTransition('READY', 'IN_PRODUCTION', true))
   })
 
   test('l’erreur de transition invalide expose un code stable', ({ assert }) => {

@@ -39,6 +39,19 @@ function notifToken() {
   }
 }
 
+/** JWT OPERATOR — même secret que inventory-service (routes protégées). */
+function inventoryBearer(): string {
+  try {
+    return jwt.sign(
+      { sub: randomUUID(), email: 'cu03-inv@sfmc.internal', role: 'OPERATOR' },
+      env.get('JWT_SECRET'),
+      { expiresIn: '5m' }
+    )
+  } catch {
+    return ''
+  }
+}
+
 async function tryJson(url: string, opts: any = {}): Promise<{ status: number; body: any } | null> {
   try {
     const res = await undiciRequest(url, opts)
@@ -52,23 +65,34 @@ async function tryJson(url: string, opts: any = {}): Promise<{ status: number; b
 }
 
 async function listStocks(): Promise<any[]> {
-  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`)
+  const b = inventoryBearer()
+  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`, {
+    headers: b ? { authorization: `Bearer ${b}` } : {},
+  })
   if (!res || res.status !== 200) return []
   return res.body.data ?? res.body ?? []
 }
 
 async function setThreshold(stockId: string, threshold: number) {
+  const b = inventoryBearer()
   return tryJson(`${INVENTORY_URL}/api/v1/stocks/${stockId}/threshold`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(b ? { authorization: `Bearer ${b}` } : {}),
+    },
     body: JSON.stringify({ threshold }),
   })
 }
 
 async function postMovement(payload: any) {
+  const b = inventoryBearer()
   return tryJson(`${INVENTORY_URL}/api/v1/stocks/movements`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(b ? { authorization: `Bearer ${b}` } : {}),
+    },
     body: JSON.stringify(payload),
   })
 }

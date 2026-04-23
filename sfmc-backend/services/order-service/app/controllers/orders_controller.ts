@@ -6,6 +6,8 @@ import {
   transitionStatus,
   ServiceUnavailableError,
   InsufficientStockError,
+  ProductNotFoundError,
+  ProductCatalogUnavailableError,
 } from '#services/order_service'
 import { InvalidTransitionError } from '#services/order_state_machine'
 import { createOrderValidator, updateStatusValidator } from '#validators/order_validator'
@@ -16,6 +18,11 @@ import {
   isClientRole,
   type Principal,
 } from '#policies/order_policy'
+import {
+  resolveCustomerDisplayNames,
+  formatCustomerDisplay,
+  fetchCustomerContact,
+} from '#services/customer_contact'
 
 function principalFrom(ctx: HttpContext): Principal | null {
   const auth = (ctx as any).auth as { id: string; role: string } | undefined
@@ -63,6 +70,16 @@ export default class OrdersController {
           },
         })
       }
+      if (err instanceof ProductNotFoundError) {
+        return response.notFound({
+          error: { code: err.code, message: err.message, details: { productId: err.productId } },
+        })
+      }
+      if (err instanceof ProductCatalogUnavailableError) {
+        return response.serviceUnavailable({
+          error: { code: err.code, message: err.message },
+        })
+      }
       throw err
     }
   }
@@ -84,8 +101,15 @@ export default class OrdersController {
     if (customerId) query.where('customer_id', customerId)
 
     const orders = await query.paginate(page, limit)
+    const rows = orders.all()
+    const labelByCustomer = await resolveCustomerDisplayNames(rows.map((o) => o.customerId))
+    const data = rows.map((o) => ({
+      ...o.serialize(),
+      customerDisplayName:
+        labelByCustomer.get(o.customerId) ?? formatCustomerDisplay(o.customerId, null),
+    }))
     return response.ok({
-      data: orders.all(),
+      data,
       meta: { total: orders.total, page: orders.currentPage, lastPage: orders.lastPage },
     })
   }
@@ -97,7 +121,13 @@ export default class OrdersController {
     const { params, response } = ctx
     const order = await Order.query().where('id', params.id).preload('lines').firstOrFail()
     if (!canAccessOrder(principalFrom(ctx), order)) return forbid(ctx)
-    return response.ok({ data: order })
+    const contact = await fetchCustomerContact(order.customerId)
+    return response.ok({
+      data: {
+        ...order.serialize(),
+        customerDisplayName: formatCustomerDisplay(order.customerId, contact),
+      },
+    })
   }
 
   /**

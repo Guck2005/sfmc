@@ -4,10 +4,13 @@ import jwt from 'jsonwebtoken'
 import { request as undiciRequest } from 'undici'
 import Order from '#models/order'
 import { publishEvent } from '#services/rabbitmq'
+import env from '#start/env'
 
-// JWT Setup
-const JWT_SECRET = 'dev-secret-change-me-32-characters-minimum'
-const token = jwt.sign({ id: randomUUID(), role: 'ADMIN' }, JWT_SECRET, { expiresIn: '1h' })
+const token = jwt.sign(
+  { sub: randomUUID(), email: 'order-saga@sfmc.internal', role: 'ADMIN' },
+  env.get('JWT_SECRET'),
+  { expiresIn: '1h' }
+)
 
 const INVENTORY_URL = process.env.INVENTORY_SERVICE_URL || 'http://localhost:3004'
 
@@ -17,7 +20,9 @@ async function sleep(ms: number) {
 
 async function getStockFromInventory(productId: string) {
   // Try to find the stock directly via inventaire API
-  const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks?productId=${productId}`)
+  const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks?productId=${productId}`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
   if (res.statusCode !== 200) return null
   const body = (await res.body.json()) as any
   const stocks = body.data || body
@@ -25,7 +30,9 @@ async function getStockFromInventory(productId: string) {
 }
 
 async function findAvailableProduct() {
-  const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks`)
+  const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
   const body = (await res.body.json()) as any
   const stocks = body.data || body
   const prod = stocks.find((s: any) => s.stockType === 'FINISHED_PRODUCT' && s.quantity > s.reserved)
@@ -168,8 +175,8 @@ test.group('Order Saga Integration (Vraie Infra)', (group) => {
     const payload = {
       orderId: randomUUID(),
       customerId: randomUUID(),
-      lines: [{ productId: validProductId, quantity: 1 }],
-      totalAmount: 100
+      lines: [{ productId: validProductId, quantity: 1, unitPrice: 100, productName: 'Test product' }],
+      totalAmount: 100,
     }
     const eventId = randomUUID()
     const fakeEvent = {

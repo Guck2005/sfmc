@@ -12,7 +12,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Satoshi', 'system-ui', 'sans-serif'],
+        /** Seule famille utilisée sur le site (y compris `font-mono` = chiffres / code en Satoshi). */
+        sans: ['Satoshi', 'sans-serif'],
+        mono: ['Satoshi', 'sans-serif'],
       },
       colors: {
         border: 'hsl(var(--border))',

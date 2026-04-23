@@ -20,8 +20,15 @@ const ALLOWED_EXPORTS: ExportType[] = [
 ]
 
 export default class ReportsController {
-  async dashboard({ response }: HttpContext) {
-    const kpis = await computeDashboardKPIs()
+  async dashboard(ctx: HttpContext) {
+    const { request, response } = ctx
+    const auth = (ctx as unknown as { auth?: { id: string; role: string } }).auth
+    const range = parseDateRange({
+      from: request.input('from'),
+      to: request.input('to'),
+    })
+    const customerId = auth?.role === 'CLIENT' ? auth.id : null
+    const kpis = await computeDashboardKPIs({ range, customerId })
     return response.ok({ data: kpis })
   }
 

@@ -5,6 +5,8 @@ import {
   cancelOrder,
   ServiceUnavailableError,
   InsufficientStockError,
+  ProductNotFoundError,
+  ProductCatalogUnavailableError,
 } from '#services/order_service'
 import { GraphQLError } from 'graphql'
 
@@ -22,12 +24,14 @@ const typeDefs = `#graphql
   type OrderLine {
     id: ID!
     productId: ID!
+    productName: String
     quantity: Float!
     unitPrice: Float!
   }
 
   type Order {
     id: ID!
+    orderNumber: String!
     customerId: ID!
     status: OrderStatus!
     sagaStatus: String
@@ -61,6 +65,7 @@ const typeDefs = `#graphql
 function mapOrder(row: Record<string, any>, lines: Record<string, any>[] = []) {
   return {
     id: row.id,
+    orderNumber: row.order_number ?? row.orderNumber,
     customerId: row.customer_id,
     status: row.status,
     sagaStatus: row.saga_status,
@@ -68,6 +73,7 @@ function mapOrder(row: Record<string, any>, lines: Record<string, any>[] = []) {
     lines: lines.map((l) => ({
       id: l.id,
       productId: l.product_id,
+      productName: l.product_name ?? null,
       quantity: Number(l.quantity),
       unitPrice: Number(l.unit_price),
     })),
@@ -113,6 +119,7 @@ const resolvers = {
         return mapOrder(
           {
             id: order.id,
+            order_number: order.orderNumber,
             customer_id: order.customerId,
             status: order.status,
             saga_status: order.sagaStatus,
@@ -135,6 +142,14 @@ const resolvers = {
             },
           })
         }
+        if (err instanceof ProductNotFoundError) {
+          throw new GraphQLError(err.message, {
+            extensions: { code: 'PRODUCT_NOT_FOUND', productId: err.productId },
+          })
+        }
+        if (err instanceof ProductCatalogUnavailableError) {
+          throw new GraphQLError(err.message, { extensions: { code: 'PRODUCT_CATALOG_UNAVAILABLE' } })
+        }
         throw err
       }
     },
@@ -144,6 +159,7 @@ const resolvers = {
       return mapOrder(
         {
           id: order.id,
+          order_number: order.orderNumber,
           customer_id: order.customerId,
           status: order.status,
           saga_status: order.sagaStatus,

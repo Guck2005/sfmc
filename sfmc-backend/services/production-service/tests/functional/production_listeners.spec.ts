@@ -50,7 +50,7 @@ test.group('Production Listeners', (group) => {
     assert.equal(po.status, 'CANCELLED')
   })
 
-  test('onOrderCancelled ignores IN_PROGRESS production orders', async ({ assert }) => {
+  test('onOrderCancelled cancels IN_PROGRESS production orders', async ({ assert }) => {
     const orderId = crypto.randomUUID()
     const po = await ProductionOrder.create({
       orderId,
@@ -63,6 +63,6 @@ test.group('Production Listeners', (group) => {
     await onOrderCancelled({ id: eventId, type: 'order.cancelled', payload: { orderId } })
 
     await po.refresh()
-    assert.equal(po.status, 'IN_PROGRESS') // should NOT change
+    assert.equal(po.status, 'CANCELLED')
   })
 })

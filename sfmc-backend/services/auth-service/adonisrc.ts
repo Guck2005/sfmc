@@ -60,7 +60,11 @@ export default defineConfig({
     () => import('#services/tracer'),
     () => import('#start/routes'),
     () => import('#start/kernel'),
-    () => import('#start/rabbitmq'),
+    /** RabbitMQ uniquement en `web` : sinon `ace migration:*` / `db:seed` ne quittent pas (handlers actifs). */
+    {
+      file: () => import('#start/rabbitmq'),
+      environment: ['web'],
+    },
   ],
 
   /*

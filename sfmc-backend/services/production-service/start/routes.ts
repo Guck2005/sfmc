@@ -11,6 +11,8 @@ import router from '@adonisjs/core/services/router'
 import type { HttpContext } from '@adonisjs/core/http'
 import db from '@adonisjs/lucid/services/db'
 import { isConnected as isRabbitConnected } from '#services/rabbitmq'
+import { middleware } from '#start/kernel'
+
 const ProductionOrdersController = () => import('#controllers/production_orders_controller')
 const MachinesController = () => import('#controllers/machines_controller')
 
@@ -49,3 +51,5 @@ router
     router.put('/machines/:id/status', [MachinesController, 'updateStatus'])
   })
   .prefix('/api/v1')
+  .use(middleware.auth())
+  .use(middleware.role(['ADMIN', 'OPERATOR']))

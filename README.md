@@ -86,6 +86,14 @@ cd ../product-service   && node ace db:seed
 cd ../inventory-service && node ace db:seed
 ```
 
+**Reset complet + jeu de démo cohérent** (toutes les BDD : `migration:fresh` puis seeders fictifs commandes / prod / factures / reporting / notifications) — depuis `sfmc-backend/` avec Docker Postgres déjà up :
+
+```powershell
+npm run db:reset:demo
+```
+
+Le script doit se terminer seul en quelques minutes. S’il « restait » bloqué sans fin : c’était dû au **auth-service** qui démarrait RabbitMQ même pour les commandes Ace (processus qui ne quittait pas) — corrigé en ne chargeant Rabbit qu’en environnement **`web`**.
+
 ### Comptes par défaut (seedés)
 
 | Rôle       | Email              | Mot de passe     |

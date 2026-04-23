@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import ProductionOrder from '#models/production_order'
 import db from '@adonisjs/lucid/services/db'
 import crypto from 'node:crypto'
+import { bearerOperatorHeaders } from '#tests/helpers/auth_token'
 
 test.group('Production Quality API', (group) => {
   group.each.setup(async () => {
@@ -18,10 +19,13 @@ test.group('Production Quality API', (group) => {
       status: 'IN_PROGRESS'
     })
 
-    const response = await client.post(`/api/v1/production-orders/${po.id}/quality`).json({
-      passed: true,
-      comments: 'All good'
-    })
+    const response = await client
+      .post(`/api/v1/production-orders/${po.id}/quality`)
+      .headers(bearerOperatorHeaders())
+      .json({
+        passed: true,
+        comments: 'All good',
+      })
 
     response.assertStatus(200)
     
@@ -37,10 +41,13 @@ test.group('Production Quality API', (group) => {
       status: 'IN_PROGRESS'
     })
 
-    const response = await client.post(`/api/v1/production-orders/${po.id}/quality`).json({
-      passed: false,
-      comments: 'Defective parts'
-    })
+    const response = await client
+      .post(`/api/v1/production-orders/${po.id}/quality`)
+      .headers(bearerOperatorHeaders())
+      .json({
+        passed: false,
+        comments: 'Defective parts',
+      })
 
     response.assertStatus(200)
     
