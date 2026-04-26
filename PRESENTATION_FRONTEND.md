@@ -9,7 +9,7 @@
 | Transport     | REST (Axios) · GraphQL (graphql-request) · WS (graphql-ws)         |
 | Module racine | `sfmc-frontend/`                                                    |
 | Port dev      | http://localhost:5173                                              |
-| Date document | 2026-04-19                                                          |
+| Date document | 2026-04-26                                                          |
 
 > La présentation du **backend** (9 microservices AdonisJS) est dans [PRESENTATION_BACKEND.md](PRESENTATION_BACKEND.md).
 
@@ -176,8 +176,13 @@ Chaque page consomme un ou plusieurs microservices. Toutes les routes sont prot�
 ### 4.3 Products & Inventory
 
 - Catalogue filtrable par catégorie (`CIMENT`, `FER`, `BRIQUES`, `GRANULATS`).
+- **Produit** : champ `imageUrl` (lien `https://…` ou chemin `/api/v1/products/assets/…` après **`POST /products/upload-image`** en `multipart/form-data`) ; vignette dans la liste ; création / édition avec bouton **Téléverser une image** (ADMIN). L’instance Axios supprime `Content-Type` sur `FormData` pour laisser la boundary (`src/lib/api.ts`).
 - Inventaire avec badges **Critique** (rouge) quand `quantity ≤ threshold`.
 - CRUD produit restreint aux `ADMIN`.
+
+### 4.3 bis Notifications
+
+- Page `/notifications` : historique filtrable (statut, canal), **pagination** (`page`, `limit` 20), rafraîchissement automatique toutes les **20 s** (React Query).
 
 ### 4.4 Production
 
@@ -212,7 +217,7 @@ Chaque page consomme un ou plusieurs microservices. Toutes les routes sont prot�
 
 ### 5.3 Interceptor Axios (`src/lib/api.ts`)
 
-- **Request** : ajoute `Authorization: Bearer <token>` si présent.
+- **Request** : ajoute `Authorization: Bearer <token>` si présent ; si le corps est un **`FormData`**, suppression de l’en-tête `Content-Type` pour que le navigateur envoie la boundary `multipart/form-data` (upload image produit).
 - **Response** :
   - `401` → `clearAuth()` + toast "Session expirée" + redirect `/login`.
   - `403` → toast "Action non autorisée".
@@ -250,39 +255,53 @@ export const api = axios.create({
 Extrait de `vite.config.ts` :
 
 ```ts
+// Extrait fidèle à `vite.config.ts` — réécritures vers `/graphql` des services product / inventory
 const proxyMap: Record<string, string> = {
-  '/api/v1/auth':                  'http://localhost:3001',
-  '/api/v1/users':                 'http://localhost:3002',
-  '/api/v1/products':              'http://localhost:3003',
-  '/api/v1/warehouses':            'http://localhost:3004',
-  '/api/v1/stocks':                'http://localhost:3004',
-  '/api/v1/orders':                'http://localhost:3005',
-  '/api/v1/production-orders':     'http://localhost:3006',
-  '/api/v1/invoices':              'http://localhost:3007',
-  '/api/v1/payments':              'http://localhost:3007',
-  '/api/v1/notifications':         'http://localhost:3008',
-  '/api/v1/reports':               'http://localhost:3009',
-  '/graphql':                      'http://localhost:3009', // REST + WebSocket
+  '/api/v1/auth': 'http://localhost:3001',
+  '/api/v1/users': 'http://localhost:3002',
+  '/api/v1/products': 'http://localhost:3003',
+  '/api/v1/machines': 'http://localhost:3006',
+  '/api/product/graphql': 'http://localhost:3003',
+  '/api/v1/warehouses': 'http://localhost:3004',
+  '/api/v1/stocks': 'http://localhost:3004',
+  '/api/inventory/graphql': 'http://localhost:3004',
+  '/api/v1/orders': 'http://localhost:3005',
+  '/api/v1/webhooks': 'http://localhost:3005',
+  '/api/v1/production-orders': 'http://localhost:3006',
+  '/api/v1/invoices': 'http://localhost:3007',
+  '/api/v1/payments': 'http://localhost:3007',
+  '/api/v1/notifications': 'http://localhost:3008',
+  '/api/v1/reports': 'http://localhost:3009',
+  '/graphql': 'http://localhost:3009',
 }
 ```
 
-Avec `ws: true` sur `/graphql` pour supporter l'upgrade WebSocket.
+`ws: true` sur `/graphql` (reporting) ; réécritures `^/api/product/graphql` → `/graphql` et `^/api/inventory/graphql` → `/graphql` côté proxy.
 
 ### 6.3 Services typés (`src/services/index.ts`)
 
 Un objet par domaine expose des méthodes `list()`, `get()`, `create()`, `update()`, `remove()` typées :
 
 ```ts
+// Extrait fidèle à `src/services/index.ts` — unwrap = déballage `{ data: T }` Adonis
 export const productsService = {
-  list: (params?) => api.get<ApiList<Product>>('/products', { params }).then((r) => r.data),
-  get:  (id)      => api.get<{ data: Product }>(`/products/${id}`).then((r) => r.data.data),
-  create: (body)  => api.post<{ data: Product }>('/products', body).then((r) => r.data.data),
-  update: (id, b) => api.patch<{ data: Product }>(`/products/${id}`, b).then((r) => r.data.data),
-  remove: (id)    => api.delete<void>(`/products/${id}`),
+  uploadProductImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api
+      .post<Envelope<{ url: string }>>('/products/upload-image', fd, { timeout: 60_000 })
+      .then(unwrap<{ url: string }>())
+  },
+  list: (params?) =>
+    api.get<PaginatedResponse<Product>>('/products', { params }).then((r) => r.data),
+  get: (id) => api.get<Envelope<Product>>(`/products/${id}`).then(unwrap<Product>()),
+  create: (body) => api.post<Envelope<Product>>('/products', body).then(unwrap<Product>()),
+  update: (id, b) => api.put<Envelope<Product>>(`/products/${id}`, b).then(unwrap<Product>()),
+  remove: (id) => api.delete(`/products/${id}`),
 }
 ```
 
-Toutes les réponses backend suivent l'enveloppe Adonis `{ data: … }` → le service déballe avant retour.
+Toutes les réponses backend suivent l'enveloppe Adonis `{ data: … }` → le service déballe avant retour (`unwrap` dans `services/index.ts`). Les types `Envelope<T>` et `PaginatedResponse<T>` y sont alignés sur les contrôleurs Adonis.
 
 ---
 
@@ -337,7 +356,7 @@ Chaque event reçu bascule le badge "Offline" → **"Flux temps réel"** et forc
 
 ### 8.1 État serveur — TanStack Query
 
-- Cache global par `queryKey` (ex. `['reports', 'dashboard']`, `['products', { q }]`).
+- Cache global par `queryKey` (ex. `['reports', 'dashboard']`, `['products', { q }]`, `['notifications', { page, limit, …filtres }]`).
 - Par défaut : `retry: 1`, `staleTime: 10 000 ms`, `refetchOnWindowFocus: false`.
 - `refetchInterval: 30 000` sur le dashboard (polling quand le WS n'est pas encore "live").
 

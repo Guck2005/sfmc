@@ -19,6 +19,10 @@ export default class Product extends BaseModel {
   @column()
   declare description: string | null
 
+  /** URL absolue (CDN, stockage objet, etc.) — pas de fichier binaire en base. */
+  @column()
+  declare imageUrl: string | null
+
   @column()
   declare unitPrice: number
 

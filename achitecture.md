@@ -11,7 +11,7 @@
 | Protocoles      | REST (OpenAPI 3.0) · GraphQL (Apollo)    |
 | Dépend de       | ARB-SFMC-2025-001 · CDC-SFMC-2025-001    |
 | Auteur          | Architecte Logiciel Senior               |
-| Date            | 2025-04-16                               |
+| Date            | 2025-04-16 (révision endpoints / JWT **2026-04-26**) |
 
 ---
 
@@ -251,13 +251,19 @@ app/
 
 **Endpoints REST :**
 
-| Méthode | Route              | Description               |
-|---------|--------------------|---------------------------|
-| GET     | `/products`        | Liste avec filtres        |
-| POST    | `/products`        | Création (Admin)          |
-| GET     | `/products/:id`    | Détail                    |
-| PUT     | `/products/:id`    | Mise à jour (Admin)       |
-| DELETE  | `/products/:id`    | Désactivation (Admin)     |
+| Méthode | Route                         | Description                                      |
+|---------|-------------------------------|--------------------------------------------------|
+| GET     | `/products`                   | Liste paginée + filtres (`category`, `isActive`) |
+| GET     | `/products/assets/:name`      | Fichier image public (UUID + ext. autorisées)   |
+| POST    | `/products/upload-image`      | **Admin** — `multipart/form-data` champ `file` → URL `/products/assets/...` |
+| POST    | `/products`                   | Création (Admin), champ optionnel `imageUrl`    |
+| GET     | `/products/:id`               | Détail                                           |
+| PUT     | `/products/:id`               | Mise à jour (Admin), `imageUrl` nullable         |
+| DELETE  | `/products/:id`               | Désactivation logicielle (Admin)                |
+
+Fichiers uploadés : répertoire applicatif `storage/uploads/products/` (à monter en volume en production).
+
+**Préfixe et sécurité :** routes sous **`/api/v1/products/…`** ; écriture réservée au rôle **`ADMIN`** (JWT). **GraphQL** (`ANY /graphql`) : *queries* publiques, *mutations* **JWT + ADMIN** — détail dans [ENDPOINTS.md](ENDPOINTS.md) §3.
 
 **Schéma GraphQL :**
 
@@ -275,7 +281,10 @@ type Product {
   category: ProductCategory!
   unit: String!
   description: String
+  imageUrl: String
+  unitPrice: Float!
   isActive: Boolean!
+  createdAt: String!
 }
 
 type Query {
@@ -300,19 +309,26 @@ Ce service gère deux types de stocks :
 - **Matières premières** (INPUT) — utilisées par la production
 - **Produits finis** (OUTPUT) — issus de la production, destinés à la vente
 
-**Endpoints REST :**
+**Préfixe et sécurité :** sous **`/api/v1/…`** — voir [ENDPOINTS.md](ENDPOINTS.md) §4. Seuls **`POST /stocks/check-availability`** et **`POST /stocks/fulfill-shipment`** sont **sans JWT** (appels inter-service depuis `order-service` ; à isoler en réseau en production). Entrepôts, mouvements, réservations, seuils, réceptions en attente et **GraphQL** exigent **JWT** + rôle **`ADMIN`** ou **`OPERATOR`**.
 
-| Méthode | Route                            | Description                              |
-|---------|----------------------------------|------------------------------------------|
-| GET     | `/stocks`                        | Stocks par entrepôt/produit              |
-| GET     | `/stocks/:productId/warehouses`  | Vue multi-entrepôts                      |
-| POST    | `/stocks/movements`              | Enregistrer un mouvement (IN/OUT/ADJUST) |
-| GET     | `/stocks/movements`              | Historique des mouvements                |
-| GET     | `/stocks/alerts`                 | Produits en seuil critique               |
-| PUT     | `/stocks/:id/threshold`          | Modifier le seuil d'alerte               |
-| POST    | `/stocks/check-availability`     | Vérification disponibilité (interne)     |
-| POST    | `/stocks/reserve`                | Réservation stock pour commande (Saga)   |
-| POST    | `/stocks/release`                | Libération réservation (compensation)    |
+**Endpoints REST (extraits) :**
+
+| Méthode | Route                                      | Auth / description                                      |
+|---------|--------------------------------------------|---------------------------------------------------------|
+| GET/POST/PUT/DELETE | `/warehouses` … `/warehouses/:id` | JWT + opérateur / admin — CRUD entrepôts               |
+| GET     | `/stocks`                                  | JWT — liste / filtres                                   |
+| POST    | `/stocks/check-availability`               | **Public** — synchrone saga                             |
+| POST    | `/stocks/fulfill-shipment`                 | **Public** — expédition / allocation                    |
+| POST    | `/stocks/reserve` · `/stocks/release`      | JWT — saga                                              |
+| POST    | `/stocks/movements`                        | JWT — IN / OUT / ADJUSTMENT                             |
+| GET     | `/stocks/movements`                         | JWT — historique                                        |
+| GET     | `/stocks/alerts`                           | JWT — sous-seuil                                        |
+| GET     | `/stocks/pending-receptions`               | JWT — réceptions à confirmer                            |
+| POST    | `/stocks/pending-receptions/:id/confirm`   | JWT — confirmation                                      |
+| PUT     | `/stocks/:id/threshold`                     | JWT — seuil d’alerte                                    |
+| GET     | `/stocks/:productId/warehouses`            | JWT — vue multi-entrepôt par produit                    |
+
+> Chemins relatifs : préfixer **`/api/v1`** (`/api/v1/stocks/…`, `/api/v1/warehouses/…`).
 
 **Schéma GraphQL :**
 
@@ -326,8 +342,8 @@ type Stock {
   warehouse: Warehouse!
   stockType: StockType!
   quantity: Float!
-  reserved: Float!          # Quantité réservée (en attente de commande)
-  available: Float!         # quantity - reserved
+  reserved: Float!
+  available: Float!
   threshold: Float!
   isCritical: Boolean!
 }
@@ -343,8 +359,9 @@ type StockMovement {
 
 type Query {
   stocks(warehouseId: ID, productId: ID, stockType: StockType): [Stock!]!
-  stockMovements(productId: ID, from: DateTime, to: DateTime): [StockMovement!]!
+  stockMovements(productId: ID, stockId: ID, from: String, to: String): [StockMovement!]!
   criticalStocks: [Stock!]!
+  warehouses: [Warehouse!]!
 }
 ```
 
@@ -380,37 +397,46 @@ type Query {
  [DELIVERED]
 ```
 
-**Endpoints REST + GraphQL :**
+**Endpoints REST + GraphQL :** préfixe **`/api/v1/orders`** pour le REST ; **GraphQL** sur **`POST /graphql`** (racine du port). Toutes les routes commandes : **JWT** ; `PUT …/orders/:id/status` : **ADMIN** ou **OPERATOR**. Webhook mobile money : **`POST /api/v1/webhooks/mobile-money`** (pas de JWT ; **`X-Payment-Signature`** + `PAYMENT_WEBHOOK_SECRET`).
 
-| Méthode | Route                  | Description                         |
-|---------|------------------------|-------------------------------------|
-| POST    | `/orders`              | Créer une commande                  |
-| GET     | `/orders`              | Liste (filtres : status, client)    |
-| GET     | `/orders/:id`          | Détail commande                     |
-| PUT     | `/orders/:id/status`   | Transition de statut (opérateurs)   |
-| DELETE  | `/orders/:id`          | Annulation + compensation Saga      |
+| Méthode | Route                               | Description                                      |
+|---------|-------------------------------------|--------------------------------------------------|
+| POST    | `/orders`                           | Créer une commande                               |
+| GET     | `/orders`                           | Liste (filtres : status, client)                 |
+| GET     | `/orders/:id`                       | Détail commande                                  |
+| POST    | `/orders/:id/cancel`                | Annulation métier + compensation saga             |
+| PUT     | `/orders/:id/status`                | Transition de statut (opérateur / admin)         |
+| DELETE  | `/orders/:id`                       | Suppression (selon policy)                       |
+| POST    | `/orders/:id/mobile-money/init`     | Encaissement mobile money (flux intégration)     |
 
-**Schéma GraphQL :**
+**Schéma GraphQL (order-service) :**
 
 ```graphql
 type Order {
   id: ID!
-  customer: User!
-  lines: [OrderLine!]!
+  orderNumber: String!
+  customerId: ID!
   status: OrderStatus!
+  sagaStatus: String
+  paymentStatus: String
+  mobileMoneyPhone: String
   totalAmount: Float!
-  createdAt: DateTime!
+  lines: [OrderLine!]!
+  createdAt: String!
+}
+
+type Query {
+  orders(status: OrderStatus, customerId: ID): [Order!]!
+  order(id: ID!): Order
 }
 
 type Mutation {
   createOrder(input: CreateOrderInput!): Order!
   cancelOrder(id: ID!): Order!
 }
-
-type Subscription {
-  orderStatusUpdated(orderId: ID!): Order!   # Temps réel via WebSocket
-}
 ```
+
+> Les **subscriptions** temps réel (`orderStatusUpdated`, `kpiUpdated`, `productionOrderUpdated`, …) sont servies par **reporting-service** (`graphql-ws` sur `ws://…/graphql`) — voir [ENDPOINTS.md](ENDPOINTS.md) §9.
 
 ---
 
@@ -444,6 +470,8 @@ PLANNED → IN_PROGRESS → QUALITY_CHECK → COMPLETED
          └──► CANCELLED
 ```
 
+**Sécurité :** toutes les routes métier sous **`/api/v1/…`** — **JWT** + rôle **`ADMIN`** ou **`OPERATOR`** ([ENDPOINTS.md](ENDPOINTS.md) §6).
+
 **Endpoints REST :**
 
 | Méthode | Route                              | Description                          |
@@ -454,6 +482,7 @@ PLANNED → IN_PROGRESS → QUALITY_CHECK → COMPLETED
 | PUT     | `/production-orders/:id/status`    | Avancement (opérateur)               |
 | POST    | `/production-orders/:id/quality`   | Résultat contrôle qualité            |
 | GET     | `/machines`                        | État des ressources machines         |
+| POST    | `/machines`                        | Créer une machine                     |
 | PUT     | `/machines/:id/status`             | Mettre à jour le statut machine      |
 
 **Événements RabbitMQ :**
@@ -471,22 +500,27 @@ PLANNED → IN_PROGRESS → QUALITY_CHECK → COMPLETED
 
 **Responsabilité unique :** Facturation, paiements, avoirs (CDC §2.1 — chaîne commerciale).
 
+**Sécurité :** toutes les routes factures sous **`/api/v1/invoices/…`** — **JWT** ([ENDPOINTS.md](ENDPOINTS.md) §7).
+
 **Endpoints REST :**
 
-| Méthode | Route                         | Description                   |
-|---------|-------------------------------|-------------------------------|
-| GET     | `/invoices`                   | Liste des factures            |
-| GET     | `/invoices/:id`               | Détail facture                |
-| POST    | `/invoices/:id/payments`      | Enregistrer un paiement       |
-| POST    | `/invoices/:id/credit-note`   | Émettre un avoir              |
-| GET     | `/invoices/:id/pdf`           | Export PDF                    |
+| Méthode | Route                            | Description                                      |
+|---------|----------------------------------|--------------------------------------------------|
+| GET     | `/invoices`                      | Liste des factures                               |
+| GET     | `/invoices/:id`                  | Détail facture (+ `customer_email` optionnel)    |
+| GET     | `/invoices/:id/payments`         | Liste des paiements                              |
+| POST    | `/invoices/:id/payments`         | Enregistrer un paiement (peut publier `billing.invoice_paid`) |
+| GET     | `/invoices/:id/pdf`              | PDF facture (PDFKit)                             |
+| GET     | `/invoices/:id/credit-note`      | Détail avoir si présent                          |
+| GET     | `/invoices/:id/credit-note/pdf`  | PDF avoir                                        |
 
 **Événements consommés :**
 
 | Événement           | Action                                             |
 |---------------------|----------------------------------------------------|
 | `order.validated`   | Générer la facture automatiquement                 |
-| `order.cancelled`   | Émettre un avoir si facture existante              |
+| `order.cancelled`   | Mettre à jour / rembourser ; création avoir + `billing.credit_note_created` si pertinent |
+| *(HTTP)*            | Après paiement : `billing.invoice_paid` si passage à `PAID` |
 
 ---
 
@@ -510,8 +544,13 @@ RabbitMQ → Consumer → Dispatcher ──► Email Provider (SMTP / Mailgun)
 | `order.cancelled`             | Client                               | Email        |
 | `production.completed`        | Responsable Logistique               | Email        |
 | `production.quality_failed`   | Responsable Production               | Email + SMS  |
-| `inventory.critical_stock`    | Resp. Logistique + Resp. Production  | Email + SMS  |
-| `billing.invoice_generated`   | Client + Équipe Finance              | Email        |
+| `inventory.critical`          | Resp. Logistique + Resp. Production  | Email + SMS  |
+| `inventory.pending_reception` | Logistique                         | Email        |
+| `billing.invoice_created`     | Client + Finance                   | Email (+ PJ PDF facture si fetch OK) |
+| `billing.invoice_paid`        | Client + Finance                   | Email (+ PJ PDF si fetch OK) |
+| `billing.credit_note_created` | Client + Finance                   | Email (+ PJ PDF avoir si fetch OK) |
+
+Pour récupérer les PDF côté **notification-service**, configurer **`BILLING_SERVICE_URL`** et réutiliser le même **`JWT_SECRET`** que le reste de la stack (JWT court style admin pour les appels `GET …/pdf`).
 
 ---
 
@@ -521,32 +560,9 @@ RabbitMQ → Consumer → Dispatcher ──► Email Provider (SMTP / Mailgun)
 
 Ce service dispose de sa propre base de données (read replica alimentée par les événements). Il ne requête **jamais** directement les autres services.
 
-**Schéma GraphQL :**
+**REST :** `GET /api/v1/reports/dashboard` (JWT + **ADMIN**, **OPERATOR** ou **CLIENT**), rapports détaillés et export CSV sous **`/api/v1/reports/…`** (JWT + **ADMIN** ou **OPERATOR**).
 
-```graphql
-type DashboardKPIs {
-  totalOrders: Int!
-  pendingOrders: Int!
-  totalRevenue: Float!
-  criticalStockCount: Int!
-  activeProductionOrders: Int!
-  qualityFailureRate: Float!       # % OF rejetés en contrôle qualité
-}
-
-type StockReport {
-  product: Product!
-  totalQuantity: Float!
-  movements: [StockMovement!]!
-}
-
-type Query {
-  dashboardKPIs(period: DateRange): DashboardKPIs!
-  stockReport(productId: ID, warehouseId: ID): [StockReport!]!
-  salesReport(period: DateRange!): SalesReport!
-  productionReport(period: DateRange!): ProductionReport!
-  qualityReport(period: DateRange!): QualityReport!   # CDC §2.1
-}
-```
+**GraphQL / WS :** `POST /graphql` et subscriptions **`graphql-ws`** sur le même chemin — schéma complet (`dashboardKPIs`, `salesReport`, `criticalStockAlerts`, `kpiUpdated`, `productionOrderUpdated`, …) dans `reporting-service/app/graphql/schema.ts` et [ENDPOINTS.md](ENDPOINTS.md) §9 · [SUBSCRIPTIONS.md](sfmc-backend/services/reporting-service/SUBSCRIPTIONS.md).
 
 ---
 
@@ -787,7 +803,9 @@ Exchange: sfmc.events (type: topic, durable: true)
 │   └── inventory.critical         → [notification, production]
 │
 └── Routing Key: billing.*
-    └── billing.invoice_created    → [notification]
+    ├── billing.invoice_created    → [notification]
+    ├── billing.invoice_paid       → [notification]
+    └── billing.credit_note_created → [notification]
 ```
 
 **Structure d'un message événement :**

@@ -38,12 +38,14 @@ router.get('/health', async ({ response }: HttpContext) => {
 })
 
 router.group(() => {
+  router.get('/assets/:name', [() => import('#controllers/products_controller'), 'serveAsset'])
   router.get('/', [() => import('#controllers/products_controller'), 'index'])
   router.get('/:id', [() => import('#controllers/products_controller'), 'show'])
 }).prefix('/api/v1/products')
 
 router
   .group(() => {
+    router.post('/upload-image', [() => import('#controllers/products_controller'), 'uploadImage'])
     router.post('/', [() => import('#controllers/products_controller'), 'store'])
     router.put('/:id', [() => import('#controllers/products_controller'), 'update'])
     router.delete('/:id', [() => import('#controllers/products_controller'), 'destroy'])

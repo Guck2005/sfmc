@@ -94,7 +94,7 @@
 - [x] 8 queues (une par handler) :
   - `notif.order_validated_q`, `notif.order_shipped_q`, `notif.order_delivered_q`, `notif.order_cancelled_q`
   - `notif.production_completed_q`, `notif.quality_failed_q`
-  - `notif.inventory_critical_q` (fix routing key `inventory.critical_stock` → **`inventory.critical`**)
+  - `notif.inventory_critical_q` (routing key **`inventory.critical`**)
   - `notif.invoice_created_q`
 - [x] Publier `billing.invoice_created` dans `billing-service/app/listeners/billing_listeners.ts` après `INSERT invoice` (non bloquant)
 

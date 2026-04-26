@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Controller, useForm } from 'react-hook-form'
@@ -52,11 +52,44 @@ import type { Product, ProductCategory } from '@/types/domain'
 
 const CATEGORIES: ProductCategory[] = ['CIMENT', 'FER', 'BRIQUES', 'GRANULATS']
 
+function ProductTableThumb({ imageUrl }: { imageUrl?: string | null }) {
+  const [broken, setBroken] = useState(false)
+  const src = imageUrl?.trim()
+  if (!src || broken) {
+    return (
+      <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
+        <Package className="h-4 w-4 text-muted-foreground" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      className="h-10 w-10 rounded-md border object-cover bg-muted"
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+    />
+  )
+}
+
 const productSchema = z.object({
   name: z.string().min(2),
   category: z.enum(['CIMENT', 'FER', 'BRIQUES', 'GRANULATS']),
   unit: z.string().min(1),
   description: z.string().optional(),
+  imageUrl: z
+    .string()
+    .max(2048)
+    .optional()
+    .transform((s) => (s?.trim() ? s.trim() : undefined))
+    .refine(
+      (s) =>
+        s === undefined ||
+        /^https?:\/\/.+/i.test(s) ||
+        /^\/api\/v1\/products\/assets\/[0-9a-f-]{36}\.(jpg|jpeg|png|gif|webp)$/i.test(s),
+      { message: 'URL https://…, chemin /api/v1/products/assets/…, ou laisser vide' }
+    ),
   unitPrice: z.coerce.number().positive(),
 })
 type ProductFormOut = z.output<typeof productSchema>
@@ -77,6 +110,8 @@ export default function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('__all__')
   const [activeFilter, setActiveFilter] = useState<string>('__all__')
   const [gqlPreview, setGqlPreview] = useState<string | null>(null)
+  const createImageFileRef = useRef<HTMLInputElement>(null)
+  const editImageFileRef = useRef<HTMLInputElement>(null)
 
   const qc = useQueryClient()
   const canManage = useAuthStore((s) => s.hasRole('ADMIN'))
@@ -104,7 +139,7 @@ export default function ProductsPage() {
 
   const form = useForm({
     resolver: zodResolver(productSchema),
-    defaultValues: { category: 'CIMENT', unit: 'unité' },
+    defaultValues: { category: 'CIMENT', unit: 'unité', imageUrl: '' },
   })
 
   const editForm = useForm({
@@ -117,7 +152,7 @@ export default function ProductsPage() {
       toast.success('Produit créé')
       qc.invalidateQueries({ queryKey: ['products'] })
       setOpen(false)
-      form.reset({ category: 'CIMENT', unit: 'unité' })
+      form.reset({ category: 'CIMENT', unit: 'unité', imageUrl: '' })
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })
@@ -139,6 +174,24 @@ export default function ProductsPage() {
     onSuccess: () => {
       toast.success('Produit désactivé')
       qc.invalidateQueries({ queryKey: ['products'] })
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  })
+
+  const uploadImageForCreate = useMutation({
+    mutationFn: (file: File) => productsService.uploadProductImage(file),
+    onSuccess: (d) => {
+      form.setValue('imageUrl', d.url, { shouldValidate: true, shouldDirty: true })
+      toast.success('Image téléversée')
+    },
+    onError: (err) => toast.error(extractErrorMessage(err)),
+  })
+
+  const uploadImageForEdit = useMutation({
+    mutationFn: (file: File) => productsService.uploadProductImage(file),
+    onSuccess: (d) => {
+      editForm.setValue('imageUrl', d.url, { shouldValidate: true, shouldDirty: true })
+      toast.success('Image téléversée')
     },
     onError: (err) => toast.error(extractErrorMessage(err)),
   })
@@ -216,11 +269,56 @@ export default function ProductsPage() {
                         <Input {...form.register('description')} />
                       </div>
                       <div className="space-y-1">
+                        <Label>Image (URL ou fichier)</Label>
+                        <Input
+                          type="text"
+                          placeholder="https://… ou téléversez une image"
+                          {...form.register('imageUrl')}
+                        />
+                        {form.formState.errors.imageUrl && (
+                          <p className="text-xs text-destructive">
+                            {form.formState.errors.imageUrl.message}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <input
+                            ref={createImageFileRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/gif,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) uploadImageForCreate.mutate(f)
+                              e.target.value = ''
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={uploadImageForCreate.isPending}
+                            onClick={() => createImageFileRef.current?.click()}
+                          >
+                            {uploadImageForCreate.isPending && (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            Téléverser une image
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Fichier jpeg/png/gif/webp (max 5 Mo) ou lien https / CDN. Les fichiers sont stockés sur le
+                          service produit.
+                        </p>
+                      </div>
+                      <div className="space-y-1">
                         <Label>Prix unitaire (XOF)</Label>
                         <Input type="number" step="0.01" {...form.register('unitPrice')} />
                       </div>
                       <DialogFooter>
-                        <Button type="submit" disabled={createMutation.isPending}>
+                        <Button
+                          type="submit"
+                          disabled={createMutation.isPending || uploadImageForCreate.isPending}
+                        >
                           {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                           Créer
                         </Button>
@@ -284,6 +382,7 @@ export default function ProductsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-14">Image</TableHead>
                   <TableHead>Unité</TableHead>
                   <TableHead>Nom</TableHead>
                   <TableHead>Catégorie</TableHead>
@@ -300,10 +399,12 @@ export default function ProductsPage() {
                     title="Voir le détail du produit"
                     onClick={() => navigate(`/products/${p.id}`)}
                   >
+                    <TableCell className="align-middle" onClick={(e) => e.stopPropagation()}>
+                      <ProductTableThumb imageUrl={p.imageUrl} />
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{p.unit}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
                         <span className="font-medium">{p.name}</span>
                       </div>
                       {p.description && (
@@ -336,6 +437,7 @@ export default function ProductsPage() {
                                     category: p.category,
                                     unit: p.unit,
                                     description: p.description ?? '',
+                                    imageUrl: p.imageUrl ?? '',
                                     unitPrice: p.unitPrice,
                                     isActive: p.isActive !== false,
                                   })
@@ -382,6 +484,17 @@ export default function ProductsPage() {
             </div>
           ) : (
             <div className="space-y-2 text-sm">
+              {detailProduct.imageUrl?.trim() ? (
+                <div className="mb-3">
+                  <span className="text-muted-foreground block text-xs mb-1">Image</span>
+                  <img
+                    src={detailProduct.imageUrl.trim()}
+                    alt={detailProduct.name}
+                    className="max-h-40 max-w-full rounded-md border object-contain"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              ) : null}
               <p>
                 <span className="text-muted-foreground">Nom</span> {detailProduct.name}
               </p>
@@ -417,7 +530,10 @@ export default function ProductsPage() {
           {editProduct && (
             <form
               onSubmit={editForm.handleSubmit((v) =>
-                updateMutation.mutate({ id: editProduct.id, body: v })
+                updateMutation.mutate({
+                  id: editProduct.id,
+                  body: { ...v, imageUrl: v.imageUrl ?? null },
+                })
               )}
               className="space-y-4"
             >
@@ -454,6 +570,44 @@ export default function ProductsPage() {
                 <Input {...editForm.register('description')} />
               </div>
               <div className="space-y-1">
+                <Label>Image (URL ou fichier)</Label>
+                <Input
+                  type="text"
+                  placeholder="https://… ou téléversez une image"
+                  {...editForm.register('imageUrl')}
+                />
+                {editForm.formState.errors.imageUrl && (
+                  <p className="text-xs text-destructive">
+                    {editForm.formState.errors.imageUrl.message}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <input
+                    ref={editImageFileRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) uploadImageForEdit.mutate(f)
+                      e.target.value = ''
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadImageForEdit.isPending}
+                    onClick={() => editImageFileRef.current?.click()}
+                  >
+                    {uploadImageForEdit.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Téléverser une image
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1">
                 <Label>Prix unitaire</Label>
                 <Input type="number" step="0.01" {...editForm.register('unitPrice')} />
               </div>
@@ -478,7 +632,10 @@ export default function ProductsPage() {
                 />
               </div>
               <DialogFooter>
-                <Button type="submit" disabled={updateMutation.isPending}>
+                <Button
+                  type="submit"
+                  disabled={updateMutation.isPending || uploadImageForEdit.isPending}
+                >
                   {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Enregistrer
                 </Button>

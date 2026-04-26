@@ -35,12 +35,12 @@ sfmc/
 ## Ce que couvre la plateforme
 
 - Authentification JWT (access + refresh) et gestion des utilisateurs
-- Catalogue produits (matériaux de construction)
+- Catalogue produits (matériaux de construction, **image** : URL ou **upload** fichier côté product-service, stockage `storage/uploads/products`)
 - Stocks multi-entrepôts et mouvements logistiques
 - Commandes avec Saga event-driven (choreography)
 - Production, ordres de fabrication et contrôle qualité
-- Facturation, paiements (CASH / MOBILE_MONEY / BANK_TRANSFER) et export PDF
-- Notifications email (Brevo SMTP) et SMS (stub)
+- Facturation, paiements (CASH / MOBILE_MONEY / BANK_TRANSFER), export **PDF facture / avoir** (PDFKit ; e-mail client `customer_email` sur facture)
+- Notifications email (Brevo SMTP) — y compris **PJ PDF** (facture créée / acquittée, avoir) via appel HTTP au billing (`BILLING_SERVICE_URL`, `JWT_SECRET` partagé) ; SMS (stub)
 - Reporting CQRS et dashboard temps réel (GraphQL Subscriptions)
 - Sécurité OWASP, health checks profonds (DB + RabbitMQ), rate limiting
 
@@ -48,7 +48,8 @@ sfmc/
 
 - **9 microservices** — 1 domaine = 1 service = 1 base PostgreSQL
 - **REST** pour les appels synchrones, **RabbitMQ** (`sfmc.events` + DLX) pour l'async
-- **GraphQL** sur product/inventory/order/reporting, **WS graphql-ws** pour les subscriptions reporting
+- **GraphQL** sur product/inventory/order/reporting (`/graphql` à la racine de chaque port ; le front utilise `/graphql` → reporting et des préfixes `/api/product/graphql`, `/api/inventory/graphql` pour éviter les collisions), **WS graphql-ws** pour les subscriptions reporting
+- **JWT + RBAC** : inventory (hors `check-availability` / `fulfill-shipment`), production, billing, reporting et la plupart des stocks/entrepôts exigent un **Bearer** valide — voir [ENDPOINTS.md](ENDPOINTS.md) et [PRESENTATION_BACKEND.md](PRESENTATION_BACKEND.md) §5.2 bis
 - **Reporting CQRS** : projections des événements dans des tables dédiées
 - **Front SPA** : proxy Vite dispatchant `/api/v1/*` et `/graphql` vers les 9 services ; aucun BFF
 
@@ -157,7 +158,7 @@ npm run preview
 
 - **Couverture fonctionnelle** : les besoins **BF §1 à §7** (production, commercial, logistique, catalogue, auth & sécurité, notifications e-mail, reporting) et les cas **CU-01 / CU-02 / CU-03** sont implémentés et tracés dans [TRACEABILITY.md](TRACEABILITY.md) (chaque ligne dispose d’au moins une preuve de test ou d’UI).
 - **Backend** : sprints **0 → 5** (voir [PRESENTATION_BACKEND.md](PRESENTATION_BACKEND.md) §10) — 9 services AdonisJS, `npm run build` sur l’ensemble des workspaces, smoke unifié **28/28** assertions (`smoke_test_cu.sh` / `.ps1`), tests d’intégration CU sur **order-service** et **inventory-service** avec stack live, facturation et matrice e-mail couvertes par tests fonctionnels + smoke CU-01.
-- **Frontend** : back-office (dashboard, commandes & timeline saga, production, stocks, facturation, rapports CSV/période, catalogue, utilisateurs, notifications) — **espace CLIENT** (`/my-orders`, `/my-invoices`), **Playwright** (6 scénarios : login 3 rôles, flux commande, badge temps réel en moins de 5 s). Build : `npm run build` (0 erreur TypeScript).
+- **Frontend** : back-office (dashboard, commandes & timeline saga, production, stocks, facturation, rapports CSV/période, **catalogue avec images**, utilisateurs, **notifications paginées**) — **espace CLIENT** (`/my-orders`, `/my-invoices`), **Playwright** (6 scénarios : login 3 rôles, flux commande, badge temps réel en moins de 5 s). Build : `npm run build` (0 erreur TypeScript).
 - **Infra** : Docker Compose développement ; fichier `docker-compose.prod.yml` validé (`docker compose … config`). Manifests Kubernetes dans `sfmc-backend/infra/k8s/`. Le démarrage complet des **9 images applicatives** en mode prod sur une machine unique peut entrer en conflit avec la stack dev (ports / noms de conteneurs) : à valider sur environnement dédié ou en pipeline d’images.
 
 ## CI/CD (GitHub Actions)

@@ -18,6 +18,8 @@ export interface Product {
   sku?: string
   name: string
   description?: string | null
+  /** URL absolue (https://…) affichée catalogue ; optionnel. */
+  imageUrl?: string | null
   category: ProductCategory
   unit: string
   unitPrice: number

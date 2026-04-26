@@ -8,7 +8,7 @@
 | Stack         | AdonisJS 6 · Node.js 20+ · TypeScript · PostgreSQL · RabbitMQ |
 | Déploiement   | Docker Compose (dev) · manifests Kubernetes disponibles  |
 | Statut        | Sprints 0 → 5 livrés — BF §1–7 + CU tracés ([`TRACEABILITY.md`](TRACEABILITY.md)), smoke 28/28 |
-| Date document | 2026-04-20                                               |
+| Date document | 2026-04-26                                               |
 
 > La présentation du **frontend** (back-office React) est dans [PRESENTATION_FRONTEND.md](PRESENTATION_FRONTEND.md).
 >
@@ -95,8 +95,8 @@ Chacun des 9 microservices agit comme acteur dans certains scénarios en produis
 
 | ID         | Cas d'utilisation                                 | Service         |
 |------------|---------------------------------------------------|-----------------|
-| UC-PROD-01 | Lister / rechercher des produits (filtres)        | product-service |
-| UC-PROD-02 | Créer / modifier / désactiver un produit          | product-service |
+| UC-PROD-01 | Lister / rechercher des produits (filtres, pagination) | product-service |
+| UC-PROD-02 | Créer / modifier / désactiver un produit (`imageUrl` URL ou fichier uploadé) | product-service |
 | UC-PROD-03 | Interroger le catalogue en GraphQL                | product-service |
 
 ### 3.3 Stocks
@@ -136,6 +136,8 @@ Chacun des 9 microservices agit comme acteur dans certains scénarios en produis
 | UC-BILL-02  | Enregistrer un paiement (CASH / MOBILE_MONEY / BANK_TRANSFER) | billing-service |
 | UC-BILL-03  | Annuler une facture depuis `order.cancelled`                  | billing-service |
 | UC-BILL-04  | Télécharger le PDF d'une facture                              | billing-service |
+| UC-BILL-05  | Télécharger le PDF d’un avoir + publier `billing.credit_note_created` | billing-service |
+| UC-BILL-06  | Publier `billing.invoice_paid` lors du passage à `PAID` (hors prépayé déjà facturé) | billing-service |
 
 ### 3.7 Notifications
 
@@ -145,6 +147,7 @@ Chacun des 9 microservices agit comme acteur dans certains scénarios en produis
 | UC-NOTIF-02  | Alerter l'admin en cas de stock critique                        | notification-service |
 | UC-NOTIF-03  | Alerter l'admin en cas d'échec qualité                          | notification-service |
 | UC-NOTIF-04  | Informer le client de l'expédition (SMS, stub)                  | notification-service |
+| UC-NOTIF-05  | Emails facture / acquittée / avoir avec **pièce jointe PDF** (fetch HTTP billing + JWT) | notification-service |
 
 ### 3.8 Reporting & observabilité
 
@@ -179,7 +182,9 @@ Chacun des 9 microservices agit comme acteur dans certains scénarios en produis
 | UC-PROD-05 Avancer OF        |   —    |    ✓     |   ✓   |         —         |
 | UC-PROD-06 Contrôle qualité  |   —    |    ✓     |   ✓   |         —         |
 | UC-BILL-02 Payer facture     |   ✓    |    ✓     |   ✓   |         —         |
-| UC-BILL-04 Télécharger PDF   |   ✓    |    ✓     |   ✓   |         —         |
+| UC-BILL-04 Télécharger PDF facture | ✓ | ✓ | ✓ | — |
+| UC-BILL-05 PDF avoir | ✓ | ✓ | ✓ | — |
+| UC-BILL-06 Événements `invoice_paid` / e-mails PJ | ✓ | ✓ | ✓ | — |
 | UC-RPT-01 Dashboard          |   —    |    ✓     |   ✓   |         —         |
 
 > ¹ Le client ne peut annuler **que ses propres commandes** et seulement avant l'état `SHIPPED`.
@@ -203,9 +208,12 @@ production-service  ──production.completed──► inventory-service
 production-service  ──production.completed──► order-service
 production-service  ──production.completed──► reporting-service
 production-service  ──production.quality_failed──► notification-service
-inventory-service   ──inventory.critical_stock──► notification-service
-inventory-service   ──inventory.critical_stock──► reporting-service
+inventory-service   ──inventory.critical──► notification-service
+inventory-service   ──inventory.pending_reception──► notification-service
+inventory-service   ──inventory.critical──► reporting-service
 billing-service     ──billing.invoice_created──► notification-service
+billing-service     ──billing.invoice_paid──────► notification-service
+billing-service     ──billing.credit_note_created► notification-service
 ```
 
 ---
@@ -263,6 +271,22 @@ billing-service     ──billing.invoice_created──► notification-service
 | Sécurité                      | JWT stateless + RBAC (Bouncer-style) + OWASP headers + rate limit |
 | Scalabilité                   | Kubernetes HPA (CPU 70%, 2→10 replicas)                           |
 
+### 5.2 bis Sécurité HTTP (alignement `start/routes.ts`)
+
+| Service | Règle courte |
+|---------|----------------|
+| **auth-service** | Register / login / refresh / logout / OAuth : public (login + throttle) ; `POST /auth/validate` avec en-tête Bearer. |
+| **user-service** | Tout `/api/v1/users/*` : **JWT**. |
+| **product-service** | Lecture catalogue (`GET` produits, assets) : public ; **POST/PUT/DELETE** produits + upload : **JWT + ADMIN** ; GraphQL : **queries** sans token, **mutations** **JWT + ADMIN**. |
+| **inventory-service** | **`POST …/stocks/check-availability`** et **`POST …/stocks/fulfill-shipment`** : **public** (order-service en saga) ; entrepôts, stocks, mouvements, seuils, réceptions, **GraphQL** : **JWT + ADMIN ou OPERATOR**. |
+| **order-service** | Tout `/api/v1/orders/*` + **GraphQL** : **JWT** ; `PUT …/orders/:id/status` : **ADMIN ou OPERATOR** ; webhook mobile money : **HMAC** (`PAYMENT_WEBHOOK_SECRET`). |
+| **production-service** | Tout `/api/v1/production-orders` et `/api/v1/machines` : **JWT + ADMIN ou OPERATOR**. |
+| **billing-service** | Toutes les routes factures : **JWT**. |
+| **notification-service** | `GET /api/v1/notifications` : **JWT**. |
+| **reporting-service** | `GET /api/v1/reports/dashboard` : **JWT + ADMIN, OPERATOR ou CLIENT** ; autres rapports, CSV et **GraphQL/WS** : **JWT + ADMIN ou OPERATOR**. |
+
+Détail route par route : [ENDPOINTS.md](ENDPOINTS.md).
+
 ### 5.3 Stack par service
 
 ```
@@ -319,7 +343,7 @@ AdonisJS 6 (TypeScript, Node 20+)
 - `users` — UUID, firstName, lastName, email, phone, role (`ADMIN`|`OPERATOR`|`CLIENT`), isActive
 
 **product-service (`sfmc_product`)**
-- `products` — UUID, name, category (`CIMENT`|`FER`|`BRIQUES`|`GRANULATS`), unit, unitPrice, isActive, description
+- `products` — UUID, name, category (`CIMENT`|`FER`|`BRIQUES`|`GRANULATS`), unit, unitPrice, isActive, description, **imageUrl** (optionnel)
 
 **inventory-service (`sfmc_inventory`)**
 - `warehouses` — UUID, name, location, capacity
@@ -338,7 +362,7 @@ AdonisJS 6 (TypeScript, Node 20+)
 - `processed_events` — idempotence
 
 **billing-service (`sfmc_billing`)**
-- `invoices` — UUID, orderId (unique), customerId, amount, currency, status (`PENDING`|`PAID`|`CANCELLED`), dueDate, issuedAt
+- `invoices` — UUID, orderId (unique), customerId, **customer_email** (optionnel, e-mails client), amount, currency, status (`PENDING`|`PAID`|`CANCELLED`), dueDate, issuedAt
 - `payments` — UUID, invoiceId (FK), amount, method (`CASH`|`MOBILE_MONEY`|`BANK_TRANSFER`), paidAt
 - `processed_events` — idempotence
 
@@ -393,8 +417,8 @@ AdonisJS 6 (TypeScript, Node 20+)
 1. order.validated (stock PF insuffisant détecté par inventory-service)
 2. inventory-svc  → émet `order.production_required`
 3. production-svc → INSERT production_order (PLANNED)
-4. opérateur prod → PUT /production-orders/:id/status → IN_PROGRESS → QUALITY_CHECK
-5. opérateur prod → POST /production-orders/:id/quality  { passed: true }
+4. opérateur prod → `PUT /api/v1/production-orders/:id/status` → IN_PROGRESS → QUALITY_CHECK
+5. opérateur prod → `POST /api/v1/production-orders/:id/quality` `{ passed: true }`
 6. production-svc → UPDATE status=COMPLETED + émet `production.completed`
 7. inventory-svc  → incrémente stock produits finis
 8. order-service  → UPDATE order.status=READY
@@ -404,7 +428,7 @@ AdonisJS 6 (TypeScript, Node 20+)
 ### 7.4 Scénario 4 — Échec contrôle qualité
 
 ```
-1. POST /production-orders/:id/quality  { passed: false, reason: "fissures" }
+1. `POST /api/v1/production-orders/:id/quality` `{ passed: false, reason: "fissures" }`
 2. production-svc → UPDATE status=REJECTED + émet `production.quality_failed`
 3. notif-service  → email alerte admin
 ```
@@ -425,7 +449,7 @@ Aucun événement `production.completed` n'est émis tant que la qualité n'est 
 
 ```
 1. Mouvement OUT sur stocks → quantity ≤ threshold
-2. inventory-svc  → émet `inventory.critical_stock`
+2. inventory-svc  → émet `inventory.critical`
 3. notif-service  → email admin
 4. reporting-svc  → insère un snapshot dans `report_stock_snapshots`
 5. Admin consulte `GET /api/v1/reports/dashboard` → `criticalStockCount` incrémenté

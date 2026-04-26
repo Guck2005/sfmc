@@ -3,6 +3,9 @@ node_modules
 build
 tmp
 
+# Fichiers uploadés (images produits)
+storage/uploads
+
 # Secrets
 .env
 .env.local

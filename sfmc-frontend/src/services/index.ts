@@ -122,6 +122,14 @@ export const usersService = {
 // ----------------------------------------------------------------------------
 
 export const productsService = {
+  /** Upload image (ADMIN) — renvoie `{ url }` chemin relatif pour `imageUrl`. */
+  uploadProductImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api
+      .post<Envelope<{ url: string }>>('/products/upload-image', fd, { timeout: 60_000 })
+      .then(unwrap<{ url: string }>())
+  },
   list: (params?: {
     page?: number
     limit?: number
@@ -135,6 +143,7 @@ export const productsService = {
     category: string
     unit: string
     description?: string
+    imageUrl?: string | null
     unitPrice: number
     isActive?: boolean
   }) => api.post<Envelope<Product>>('/products', payload).then(unwrap<Product>()),
@@ -145,6 +154,7 @@ export const productsService = {
       category: string
       unit: string
       description: string | null
+      imageUrl: string | null
       unitPrice: number
       isActive: boolean
     }>

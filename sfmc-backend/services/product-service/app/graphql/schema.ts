@@ -15,6 +15,7 @@ const typeDefs = `#graphql
     category: ProductCategory!
     unit: String!
     description: String
+    imageUrl: String
     unitPrice: Float!
     isActive: Boolean!
     createdAt: String!
@@ -30,6 +31,7 @@ const typeDefs = `#graphql
     category: ProductCategory!
     unit: String!
     description: String
+    imageUrl: String
     unitPrice: Float!
   }
 
@@ -38,6 +40,7 @@ const typeDefs = `#graphql
     category: ProductCategory
     unit: String
     description: String
+    imageUrl: String
     unitPrice: Float
     isActive: Boolean
   }
@@ -72,6 +75,7 @@ const resolvers = {
           category: args.input.category,
           unit: args.input.unit,
           description: args.input.description ?? null,
+          image_url: args.input.imageUrl ?? null,
           unit_price: args.input.unitPrice,
           is_active: true,
           created_at: new Date(),
@@ -86,6 +90,7 @@ const resolvers = {
       if (args.input.category !== undefined) updates.category = args.input.category
       if (args.input.unit !== undefined) updates.unit = args.input.unit
       if (args.input.description !== undefined) updates.description = args.input.description
+      if (args.input.imageUrl !== undefined) updates.image_url = args.input.imageUrl || null
       if (args.input.unitPrice !== undefined) updates.unit_price = args.input.unitPrice
       if (args.input.isActive !== undefined) updates.is_active = args.input.isActive
 
@@ -110,6 +115,7 @@ function mapProduct(row: Record<string, unknown>) {
     category: row.category,
     unit: row.unit,
     description: row.description,
+    imageUrl: row.image_url ?? null,
     unitPrice: Number(row.unit_price),
     isActive: row.is_active,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),

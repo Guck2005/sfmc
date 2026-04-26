@@ -39,7 +39,7 @@
 | **Base de données** | `sfmc_notification` (port 5438) |
 | **Migrations** | `notifications`, `processed_events` |
 | **Modèles Lucid** | `Notification` (channel: EMAIL/SMS, status: SENT/FAILED), `ProcessedEvent` |
-| **RabbitMQ Consumer** | 4 queues: `order.validated` (Email client), `order.shipped` (SMS client), `production.quality_failed` (Email Admin), `inventory.critical_stock` (Email Admin) |
+| **RabbitMQ Consumer** | 4 queues: `order.validated` (Email client), `order.shipped` (SMS client), `production.quality_failed` (Email Admin), `inventory.critical` (Email Admin) |
 | **Dispatcher** | Architecture plug-and-play : `sendEmail()` et `sendSms()` — stubs `console.info()` prêts pour intégration Brevo |
 | **Idempotence** | Table `processed_events` — déduplication sur `event_id` |
 
@@ -114,7 +114,7 @@ Vu l'utilisation de l'Active Record (Lucid ORM), l'implémentation de tests de c
 │                  │ ───────────────────────── │ Notification Service │ → Email Admin
 └──────────────────┘                           └──────────────────────┘
 
-┌───────────────────┐  inventory.critical_stock ┌──────────────────────┐
+┌───────────────────┐  inventory.critical     ┌──────────────────────┐
 │ Inventory Service │ ───────────────────────── │ Notification Service │ → Email admin
 └───────────────────┘                           └──────────────────────┘
 ```

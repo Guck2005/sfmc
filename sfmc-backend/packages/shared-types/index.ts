@@ -19,6 +19,8 @@ export interface Product {
   category: ProductCategory
   unit: string
   description?: string
+  /** URL publique de l’image (optionnel). */
+  imageUrl?: string | null
   isActive: boolean
 }
 
