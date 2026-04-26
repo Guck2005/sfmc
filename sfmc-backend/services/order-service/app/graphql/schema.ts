@@ -35,6 +35,8 @@ const typeDefs = `#graphql
     customerId: ID!
     status: OrderStatus!
     sagaStatus: String
+    paymentStatus: String
+    mobileMoneyPhone: String
     totalAmount: Float!
     lines: [OrderLine!]!
     createdAt: String!
@@ -49,6 +51,7 @@ const typeDefs = `#graphql
   input CreateOrderInput {
     customerId: ID!
     lines: [OrderLineInput!]!
+    mobileMoneyPhone: String
   }
 
   type Query {
@@ -69,6 +72,8 @@ function mapOrder(row: Record<string, any>, lines: Record<string, any>[] = []) {
     customerId: row.customer_id,
     status: row.status,
     sagaStatus: row.saga_status,
+    paymentStatus: row.payment_status ?? row.paymentStatus ?? null,
+    mobileMoneyPhone: row.mobile_money_phone ?? row.mobileMoneyPhone ?? null,
     totalAmount: Number(row.total_amount),
     lines: lines.map((l) => ({
       id: l.id,
@@ -112,7 +117,7 @@ const resolvers = {
     },
   },
   Mutation: {
-    async createOrder(_: unknown, args: { input: { customerId: string; lines: any[] } }) {
+    async createOrder(_: unknown, args: { input: { customerId: string; lines: any[]; mobileMoneyPhone?: string } }) {
       try {
         const order = await createOrder(args.input)
         const lines = await db.from('order_lines').where('order_id', order.id)
@@ -123,6 +128,8 @@ const resolvers = {
             customer_id: order.customerId,
             status: order.status,
             saga_status: order.sagaStatus,
+            payment_status: order.paymentStatus,
+            mobile_money_phone: order.mobileMoneyPhone,
             total_amount: order.totalAmount,
             created_at: order.createdAt.toJSDate(),
           },
@@ -163,6 +170,8 @@ const resolvers = {
           customer_id: order.customerId,
           status: order.status,
           saga_status: order.sagaStatus,
+          payment_status: order.paymentStatus,
+          mobile_money_phone: order.mobileMoneyPhone,
           total_amount: order.totalAmount,
           created_at: order.createdAt.toJSDate(),
         },

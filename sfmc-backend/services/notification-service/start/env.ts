@@ -24,6 +24,8 @@ export default await Env.create(new URL('../', import.meta.url), {
   DB_DATABASE: Env.schema.string(),
   DB_SSL: Env.schema.boolean.optional(),
   JWT_SECRET: Env.schema.string(),
+  /** Base URL billing-service (PDF factures / avoirs pour pièces jointes e-mail). */
+  BILLING_SERVICE_URL: Env.schema.string.optional(),
   RABBITMQ_URL: Env.schema.string(),
   BREVO_SMTP_HOST: Env.schema.string(),
   BREVO_SMTP_PORT: Env.schema.number(),

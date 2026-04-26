@@ -55,15 +55,22 @@ async function tryJson(url: string, opts: any = {}): Promise<{ status: number; b
 }
 
 async function findAvailableProduct(): Promise<string | null> {
-  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`, {
-    headers: { authorization: `Bearer ${serviceToken('OPERATOR')}` },
-  })
-  if (!res || res.status !== 200) return null
-  const stocks = res.body.data || res.body
-  const free = (stocks as any[]).find(
-    (s: any) => Number(s.quantity) - Number(s.reserved) >= 1
-  )
-  return free?.productId ?? null
+  let page = 1
+  let lastPage = 1
+  do {
+    const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks?page=${page}&limit=100`, {
+      headers: { authorization: `Bearer ${serviceToken('OPERATOR')}` },
+    })
+    if (!res || res.status !== 200) return null
+    const stocks = res.body.data || res.body
+    const free = (stocks as any[]).find(
+      (s: any) => Number(s.quantity) - Number(s.reserved) >= 1
+    )
+    if (free) return free.productId ?? null
+    lastPage = Number(res.body.meta?.lastPage) || 1
+    page++
+  } while (page <= lastPage)
+  return null
 }
 
 async function createOrder(token: string, payload: any) {

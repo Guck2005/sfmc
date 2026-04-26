@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import Invoice from '#models/invoice'
+import Payment from '#models/payment'
 import CreditNote from '#models/credit_note'
 import ProcessedEvent from '#models/processed_event'
 import logger from '@adonisjs/core/services/logger'
@@ -11,7 +12,8 @@ import {
   nextInvoiceSequence,
 } from '#services/reference_sequence'
 import type { DomainEvent } from '@sfmc/shared-types'
-import type { InvoiceCreatedPayload } from '@sfmc/event-contracts'
+import type { CreditNoteCreatedPayload, InvoiceCreatedPayload } from '@sfmc/event-contracts'
+import { publishBillingEvent } from '#services/billing_event_publish'
 
 const SERVICE_NAME = 'billing-service'
 
@@ -21,7 +23,7 @@ function createEvent<T extends Record<string, unknown>>(
   sagaId?: string
 ): DomainEvent {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     type,
     version: '1.0',
     timestamp: new Date().toISOString(),
@@ -63,27 +65,48 @@ export async function onOrderValidated(event: any) {
       ? payload.orderNumber.trim()
       : null
 
+  const prepaid = payload.prepaidMobileMoney
+
   const invoice = await db.transaction(async (trx) => {
     const year = currentInvoiceYear()
     const seq = await nextInvoiceSequence(trx, year)
     const invoiceNumber = formatInvoicePublicNumber(year, seq)
-    return Invoice.create(
+    const inv = await Invoice.create(
       {
         orderId: payload.orderId,
         orderPublicNumber,
         invoiceNumber,
         customerId: payload.customerId || null,
+        customerEmail: payload.customerEmail?.trim() || null,
         amount: payload.totalAmount,
         currency: payload.currency || 'XOF',
-        status: 'PENDING',
+        status: prepaid?.providerReference ? 'PAID' : 'PENDING',
       },
       { client: trx }
     )
+    if (prepaid?.providerReference) {
+      await Payment.create(
+        {
+          invoiceId: inv.id,
+          amount: Number(payload.totalAmount),
+          method: 'MOBILE_MONEY',
+        },
+        { client: trx }
+      )
+    }
+    return inv
   })
 
   logger.info(
-    { invoiceId: invoice.id, orderId: payload.orderId, amount: invoice.amount },
-    '[billing] PENDING invoice created'
+    {
+      invoiceId: invoice.id,
+      orderId: payload.orderId,
+      amount: invoice.amount,
+      status: invoice.status,
+    },
+    prepaid?.providerReference
+      ? '[billing] invoice created PAID (prepaid mobile money)'
+      : '[billing] PENDING invoice created'
   )
 
   const invoicePayload: InvoiceCreatedPayload = {
@@ -143,7 +166,7 @@ export async function onOrderCancelled(event: any) {
         typeof payload.reason === 'string' && payload.reason.trim().length > 0
           ? `Annulation : ${payload.reason}`
           : 'Annulation commande après paiement'
-      await CreditNote.create({
+      const note = await CreditNote.create({
         id: randomUUID(),
         invoiceId: invoice.id,
         orderId: invoice.orderId,
@@ -153,6 +176,28 @@ export async function onOrderCancelled(event: any) {
         reason: reasonText,
       })
       logger.info({ invoiceId: invoice.id }, '[billing] credit note (avoir) created')
+
+      const creditPayload: CreditNoteCreatedPayload = {
+        creditNoteId: note.id,
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        orderId: invoice.orderId,
+        orderNumber: invoice.orderPublicNumber ?? undefined,
+        customerId: invoice.customerId,
+        customerEmail: payload.customerEmail,
+        amount: Number(invoice.amount),
+        currency: invoice.currency,
+        reason: reasonText,
+      }
+      try {
+        await publishBillingEvent(
+          'billing.credit_note_created',
+          creditPayload as unknown as Record<string, unknown>,
+          invoice.orderId
+        )
+      } catch (err) {
+        logger.warn({ err, invoiceId: invoice.id }, '[billing] failed to publish credit_note_created')
+      }
     }
   } else {
     invoice.status = 'CANCELLED'

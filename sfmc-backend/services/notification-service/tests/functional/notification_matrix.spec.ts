@@ -19,11 +19,14 @@ test.group('Notification Matrix (Email-only)', (group) => {
 
   test('order.shipped → email to customer', async ({ assert }) => {
     const eventId = crypto.randomUUID()
+    const productId = crypto.randomUUID()
     const payload = {
       orderId: crypto.randomUUID(),
       customerId: crypto.randomUUID(),
       customerEmail: 'client@test.local',
       shippedAt: new Date().toISOString(),
+      warehouseId: crypto.randomUUID(),
+      lines: [{ productId, quantity: 1 }],
     }
 
     await onOrderShipped({ id: eventId, type: 'order.shipped', payload })
@@ -119,11 +122,14 @@ test.group('Notification Matrix (Email-only)', (group) => {
 
   test('event idempotency: second call does nothing', async ({ assert }) => {
     const eventId = crypto.randomUUID()
+    const pid = crypto.randomUUID()
     const payload = {
       orderId: crypto.randomUUID(),
       customerId: crypto.randomUUID(),
       customerEmail: 'idem@test.local',
       shippedAt: new Date().toISOString(),
+      warehouseId: crypto.randomUUID(),
+      lines: [{ productId: pid, quantity: 2 }],
     }
 
     await onOrderShipped({ id: eventId, type: 'order.shipped', payload })

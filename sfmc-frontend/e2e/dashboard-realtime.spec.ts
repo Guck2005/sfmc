@@ -6,7 +6,7 @@ import {
   ACCOUNTS,
 } from './fixtures'
 
-test.describe('Dashboard — indicateur de flux temps réel', () => {
+test.describe('Rapports — indicateur de flux temps réel', () => {
   test.beforeAll(async () => {
     await resetLoginRateLimit()
   })
@@ -15,7 +15,7 @@ test.describe('Dashboard — indicateur de flux temps réel', () => {
     page,
     request,
   }) => {
-    await loginAs(page, request, 'ADMIN')
+    await loginAs(page, request, 'ADMIN', '/reports')
 
     // Le badge commence par "Connexion…" puis passe soit à "Flux temps réel"
     // (si reporting-service WS dispo), soit à "Offline" après 4 s.

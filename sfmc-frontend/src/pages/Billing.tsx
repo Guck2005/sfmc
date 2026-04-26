@@ -248,7 +248,12 @@ export default function BillingPage() {
             </TableHeader>
             <TableBody>
               {invoices.map((inv) => (
-                <TableRow key={inv.id}>
+                <TableRow
+                  key={inv.id}
+                  className="cursor-pointer"
+                  title="Voir le détail de la facture"
+                  onClick={() => navigate(`${invoicesBase}/${inv.id}`)}
+                >
                   <TableCell>
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-muted-foreground" />
@@ -276,7 +281,7 @@ export default function BillingPage() {
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(inv.dueDate ?? inv.createdAt)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end">
                       <RowActionsMenu ariaLabel={`Actions facture ${inv.invoiceNumber ?? inv.id.slice(0, 8)}`}>
                         <DropdownMenuItem onClick={() => navigate(`${invoicesBase}/${inv.id}`)}>

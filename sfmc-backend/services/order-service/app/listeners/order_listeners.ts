@@ -1,5 +1,7 @@
 import logger from '@adonisjs/core/services/logger'
 import { consume } from '#services/rabbitmq'
+import Order from '#models/order'
+import { isPaymentGateEnabled } from '#services/mobile_money_config'
 import {
   validateOrder,
   cancelOrderFromSaga,
@@ -29,7 +31,26 @@ export async function startOrderListeners(): Promise<void> {
     handler: async (event) => {
       if (await dedupe(event.id, event.type)) return
       const payload = event.payload as unknown as InventoryReservedPayload
-      await validateOrder(payload.orderId, event.metadata.sagaId ?? payload.sagaId)
+      const sagaId = event.metadata.sagaId ?? payload.sagaId
+
+      if (isPaymentGateEnabled()) {
+        const order = await Order.findOrFail(payload.orderId)
+        if (order.status !== 'PENDING') {
+          await markEventProcessed(event.id, event.type)
+          return
+        }
+        order.paymentStatus = 'AWAITING_MOBILE_MONEY'
+        order.sagaStatus = 'AWAITING_PAYMENT'
+        await order.save()
+        await markEventProcessed(event.id, event.type)
+        logger.info(
+          { orderId: payload.orderId },
+          '[order] stock OK — en attente paiement mobile money (stub)'
+        )
+        return
+      }
+
+      await validateOrder(payload.orderId, sagaId)
       await markEventProcessed(event.id, event.type)
       logger.info({ orderId: payload.orderId }, '[order] VALIDATED (saga step 3)')
     },

@@ -23,4 +23,17 @@ export default await Env.create(new URL('../', import.meta.url), {
   INVENTORY_SERVICE_URL: Env.schema.string(),
   PRODUCT_SERVICE_URL: Env.schema.string.optional(),
   USER_SERVICE_URL: Env.schema.string.optional(),
+  /**
+   * true = après réservation stock, la commande attend une confirmation de paiement (webhook signé)
+   * avant `order.validated`.
+   */
+  REQUIRE_PAYMENT_BEFORE_VALIDATION: Env.schema.boolean.optional(),
+  /** @deprecated — si true, équivalent à REQUIRE_PAYMENT_BEFORE_VALIDATION=true */
+  MOBILE_MONEY_STUB_ENABLED: Env.schema.boolean.optional(),
+  /** Secret HMAC pour `POST /api/v1/webhooks/mobile-money` (obligatoire si le gate paiement est actif). */
+  PAYMENT_WEBHOOK_SECRET: Env.schema.string.optional(),
+  /** true = autorise POST …/mobile-money/complete-local (développement seulement). */
+  ALLOW_PAYMENT_COMPLETE_LOCAL: Env.schema.boolean.optional(),
+  /** URL de base du PSP — appels HTTP sortants (optionnel). */
+  MOBILE_MONEY_PSP_BASE_URL: Env.schema.string.optional(),
 })

@@ -44,7 +44,7 @@ type NavGroupDef = {
 
 const DASHBOARD_ITEM: NavLinkDef = {
   to: '/',
-  label: 'Tableau de bord',
+  label: 'Accueil',
   icon: LayoutDashboard,
   end: true,
 }

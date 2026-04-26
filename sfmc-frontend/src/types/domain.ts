@@ -115,6 +115,13 @@ export type OrderStatus =
   | 'DELIVERED'
   | 'CANCELLED'
 
+/** Répartition d’expédition multi-entrepôts (PUT /orders/:id/status). */
+export interface OrderShipmentAllocation {
+  productId: string
+  quantity: number
+  warehouseId: string
+}
+
 export interface OrderLine {
   id?: string
   productId: string
@@ -124,6 +131,9 @@ export interface OrderLine {
   unitPrice: number
 }
 
+/** Présent si le flux « paiement mobile money avant validation » (stub) est actif côté API. */
+export type OrderPaymentStatus = 'AWAITING_MOBILE_MONEY' | 'PAID' | null
+
 export interface Order {
   id: string
   /** Référence affichable (ex. CMD-2026-000001), distincte de l’UUID `id`. */
@@ -132,6 +142,10 @@ export interface Order {
   /** Libellé affichable (nom ou email), renseigné par order-service sur la liste. */
   customerDisplayName?: string | null
   status: OrderStatus
+  sagaStatus?: string | null
+  paymentStatus?: OrderPaymentStatus
+  mobileMoneyPhone?: string | null
+  mobileMoneyProviderRef?: string | null
   totalAmount: number
   currency: string
   lines: OrderLine[]

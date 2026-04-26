@@ -14,7 +14,7 @@ export default function ProductionLayout() {
           <NavLink
             key={tab.to}
             to={tab.to}
-            end
+            end={tab.to === '/production/orders'}
             className={({ isActive }) =>
               cn(
                 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',

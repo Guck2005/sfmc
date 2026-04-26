@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit'
 import { PassThrough } from 'node:stream'
 import type CreditNote from '#models/credit_note'
 import type Invoice from '#models/invoice'
+import { formatPdfAmount } from '#services/pdf_amount_format'
 
 /**
  * PDF d’avoir (note de crédit) lié à une facture réglée puis annulée.
@@ -73,7 +74,7 @@ export async function buildCreditNotePdf(
     .text('Montant de l’avoir (crédit client)', 70, boxTop + 15)
     .fontSize(16)
     .fillColor('#b71c1c')
-    .text(formatAmount(creditNote.amount, creditNote.currency), 70, boxTop + 40)
+    .text(formatPdfAmount(creditNote.amount, creditNote.currency), 70, boxTop + 40)
 
   doc
     .fillColor('#555')
@@ -97,9 +98,4 @@ export async function buildCreditNotePdf(
   })
 
   return Buffer.concat(chunks)
-}
-
-function formatAmount(amount: number, currency: string): string {
-  const n = Number(amount)
-  return `${n.toLocaleString('fr-FR', { minimumFractionDigits: 0 })} ${currency}`
 }

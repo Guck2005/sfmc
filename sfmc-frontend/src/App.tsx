@@ -7,7 +7,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { AuthBootstrap } from '@/components/AuthBootstrap'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import LoginPage from '@/pages/Login'
-import DashboardPage from '@/pages/Dashboard'
+import HomePage from '@/pages/HomePage'
 import OrdersPage from '@/pages/Orders'
 import OrderDetailPage from '@/pages/OrderDetail'
 import ProductsPage from '@/pages/Products'
@@ -22,6 +22,7 @@ import InventoryGraphqlPage from '@/pages/inventory/InventoryGraphqlPage'
 import ProductionLayout from '@/pages/production/ProductionLayout'
 import ProductionOrdersPage from '@/pages/production/ProductionOrdersPage'
 import ProductionMachinesPage from '@/pages/production/ProductionMachinesPage'
+import ProductionMachineDetailPage from '@/pages/production/ProductionMachineDetailPage'
 import BillingPage from '@/pages/Billing'
 import NotificationsPage from '@/pages/Notifications'
 import ReportsPage from '@/pages/Reports'
@@ -51,7 +52,7 @@ export default function App() {
 
           <Route element={<ProtectedRoute />}>
             <Route element={<AppShell />}>
-              <Route index element={<DashboardPage />} />
+              <Route index element={<HomePage />} />
               <Route path="orders/:id" element={<OrderDetailPage />} />
               <Route path="products/:productId" element={<ProductsPage />} />
               <Route path="products" element={<ProductsPage />} />
@@ -84,6 +85,7 @@ export default function App() {
                 <Route path="production" element={<ProductionLayout />}>
                   <Route index element={<Navigate to="orders" replace />} />
                   <Route path="orders" element={<ProductionOrdersPage />} />
+                  <Route path="machines/:machineId" element={<ProductionMachineDetailPage />} />
                   <Route path="machines" element={<ProductionMachinesPage />} />
                 </Route>
                 <Route path="reports" element={<ReportsPage />} />

@@ -5,6 +5,7 @@ import {
   createMovementValidator,
   updateThresholdValidator,
   checkAvailabilityValidator,
+  fulfillShipmentValidator,
   reserveValidator,
   releaseValidator,
 } from '#validators/stock_validator'
@@ -12,25 +13,40 @@ import {
   recordMovement,
   reserveForOrder,
   releaseForOrder,
+  fulfillOrderShipment,
   computeAvailable,
   isCritical,
   InsufficientStockError,
+  ShipmentAllocationMismatchError,
 } from '#services/stock_service'
 
 export default class StocksController {
   /**
    * GET /api/v1/stocks
+   * Query : `warehouseId?`, `productId?`, `page` (défaut 1), `limit` (défaut 20, max 100).
    */
   async index({ request, response }: HttpContext) {
     const warehouseId = request.input('warehouseId')
     const productId = request.input('productId')
+    const page = Math.max(1, Number(request.input('page', 1)) || 1)
+    const rawLimit = Number(request.input('limit', 20)) || 20
+    const limit = Math.min(100, Math.max(1, rawLimit))
 
     const query = Stock.query().orderBy('product_id').orderBy('warehouse_id')
     if (warehouseId) query.where('warehouse_id', warehouseId)
     if (productId) query.where('product_id', productId)
 
-    const stocks = await query
-    return response.ok({ data: stocks.map((s) => s.serialize()) })
+    const pageResult = await query.paginate(page, limit)
+    const rows = pageResult.all()
+    return response.ok({
+      data: rows.map((s) => s.serialize()),
+      meta: {
+        total: pageResult.total,
+        perPage: pageResult.perPage,
+        currentPage: pageResult.currentPage,
+        lastPage: pageResult.lastPage,
+      },
+    })
   }
 
   /**
@@ -123,6 +139,38 @@ export default class StocksController {
         productId: payload.productId,
       },
     })
+  }
+
+  /**
+   * POST /api/v1/stocks/fulfill-shipment — inter-service (order-service), sorties OUT idempotentes.
+   */
+  async fulfillShipment({ request, response }: HttpContext) {
+    const payload = await request.validateUsing(fulfillShipmentValidator)
+    try {
+      const result = await fulfillOrderShipment({
+        orderId: payload.orderId,
+        lines: payload.lines,
+        warehouseId: payload.warehouseId,
+        allocations: payload.allocations,
+      })
+      return response.ok({ data: { orderId: payload.orderId, ...result } })
+    } catch (err) {
+      if (err instanceof InsufficientStockError) {
+        return response.conflict({
+          error: {
+            code: err.code,
+            message: err.message,
+            details: { productId: err.productId, requested: err.requested, available: err.available },
+          },
+        })
+      }
+      if (err instanceof ShipmentAllocationMismatchError) {
+        return response.unprocessableEntity({
+          error: { code: err.code, message: err.message },
+        })
+      }
+      throw err
+    }
   }
 
   /**

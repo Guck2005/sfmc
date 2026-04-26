@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
@@ -10,6 +10,7 @@ import { Loader2, Package, Pencil, Plus, Search, Trash2, Braces } from 'lucide-r
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
@@ -60,6 +61,11 @@ const productSchema = z.object({
 })
 type ProductFormOut = z.output<typeof productSchema>
 
+const editProductSchema = productSchema.extend({
+  isActive: z.boolean(),
+})
+type EditProductFormOut = z.output<typeof editProductSchema>
+
 export default function ProductsPage() {
   const { productId } = useParams()
   const navigate = useNavigate()
@@ -102,7 +108,7 @@ export default function ProductsPage() {
   })
 
   const editForm = useForm({
-    resolver: zodResolver(productSchema),
+    resolver: zodResolver(editProductSchema),
   })
 
   const createMutation = useMutation({
@@ -117,7 +123,7 @@ export default function ProductsPage() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (payload: { id: string; body: ProductFormOut }) =>
+    mutationFn: (payload: { id: string; body: EditProductFormOut }) =>
       productsService.update(payload.id, payload.body),
     onSuccess: () => {
       toast.success('Produit mis à jour')
@@ -288,7 +294,12 @@ export default function ProductsPage() {
               </TableHeader>
               <TableBody>
                 {products.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow
+                    key={p.id}
+                    className="cursor-pointer"
+                    title="Voir le détail du produit"
+                    onClick={() => navigate(`/products/${p.id}`)}
+                  >
                     <TableCell className="font-mono text-xs">{p.unit}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -308,7 +319,7 @@ export default function ProductsPage() {
                         {p.isActive ? 'Actif' : 'Inactif'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end">
                         <RowActionsMenu ariaLabel={`Actions produit ${p.name}`}>
                           <DropdownMenuItem onClick={() => navigate(`/products/${p.id}`)}>
@@ -326,6 +337,7 @@ export default function ProductsPage() {
                                     unit: p.unit,
                                     description: p.description ?? '',
                                     unitPrice: p.unitPrice,
+                                    isActive: p.isActive !== false,
                                   })
                                 }}
                               >
@@ -444,6 +456,26 @@ export default function ProductsPage() {
               <div className="space-y-1">
                 <Label>Prix unitaire</Label>
                 <Input type="number" step="0.01" {...editForm.register('unitPrice')} />
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-3 py-2">
+                <div className="space-y-0.5">
+                  <Label htmlFor="product-edit-active">Produit actif</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Un produit inactif disparaît des sélections catalogue côté commandes.
+                  </p>
+                </div>
+                <Controller
+                  name="isActive"
+                  control={editForm.control}
+                  render={({ field }) => (
+                    <Switch
+                      id="product-edit-active"
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={updateMutation.isPending}
+                    />
+                  )}
+                />
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={updateMutation.isPending}>

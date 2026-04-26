@@ -51,6 +51,22 @@ export class InsufficientStockError extends Error {
   }
 }
 
+export class ShipmentAllocationMismatchError extends Error {
+  public readonly code = 'SHIPMENT_ALLOCATION_MISMATCH'
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+function totalsByProductId(lines: Array<{ productId: string; quantity: number }>): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const l of lines) {
+    const q = Number(l.quantity)
+    m.set(l.productId, (m.get(l.productId) ?? 0) + q)
+  }
+  return m
+}
+
 export function computeAvailable(stock: { quantity: number; reserved: number }): number {
   return Number(stock.quantity) - Number(stock.reserved)
 }
@@ -181,6 +197,125 @@ export async function markEventProcessed(eventId: string, eventType: string): Pr
   } catch {
     // unique violation — already processed by parallel consumer
   }
+}
+
+/** Vérifie la disponibilité agrégée (tous entrepôts) — sans réserver de ligne de stock. */
+export async function confirmGlobalAvailabilityForOrder(params: {
+  lines: Array<{ productId: string; quantity: number }>
+}): Promise<void> {
+  for (const line of params.lines) {
+    const stocks = await Stock.query().where('product_id', line.productId)
+    const totalAvailable = stocks.reduce((sum, s) => sum + computeAvailable(s), 0)
+    if (totalAvailable < line.quantity) {
+      throw new InsufficientStockError(line.productId, line.quantity, totalAvailable)
+    }
+  }
+}
+
+const shipmentFulfillDedupeId = (orderId: string) => `order-shipment-fulfill:${orderId}`
+export const ORDER_SHIPPED_MOVEMENT_ORIGIN = 'order_shipped'
+
+/**
+ * Sorties de stock pour une expédition.
+ * - Mono-entrepôt : `warehouseId` + `lines`.
+ * - Multi-entrepôts : `allocations` (chaque entrée = un OUT produit + quantité + entrepôt) ; les sommes par `productId` doivent égaler celles de `lines`.
+ * Idempotent par `orderId` (rejouer après succès ne refait pas les OUT).
+ */
+export async function fulfillOrderShipment(params: {
+  orderId: string
+  lines: Array<{ productId: string; quantity: number }>
+  warehouseId?: string
+  allocations?: Array<{ productId: string; quantity: number; warehouseId: string }>
+}): Promise<{ alreadyFulfilled: boolean }> {
+  const useSplit = params.allocations && params.allocations.length > 0
+  if (!useSplit && !params.warehouseId) {
+    throw new ShipmentAllocationMismatchError(
+      'warehouseId (mono-entrepôt) ou allocations (multi) est requis'
+    )
+  }
+  if (useSplit) {
+    const expected = totalsByProductId(params.lines)
+    const allocTotals = totalsByProductId(params.allocations!)
+    if (expected.size !== allocTotals.size) {
+      throw new ShipmentAllocationMismatchError(
+        'Les produits dans allocations ne correspondent pas aux lignes de commande'
+      )
+    }
+    for (const [pid, qty] of expected) {
+      const a = allocTotals.get(pid)
+      if (a === undefined || Math.abs(Number(a) - Number(qty)) > 1e-6) {
+        throw new ShipmentAllocationMismatchError(
+          `Quantités agrégées incorrectes pour le produit ${pid} (attendu ${qty}, obtenu ${a ?? 0})`
+        )
+      }
+    }
+  }
+
+  return await db.transaction(async (trx) => {
+    const dedupeId = shipmentFulfillDedupeId(params.orderId)
+    const existing = await ProcessedEvent.query({ client: trx }).where('event_id', dedupeId).forUpdate().first()
+    if (existing) {
+      return { alreadyFulfilled: true }
+    }
+
+    if (useSplit) {
+      for (const a of params.allocations!) {
+        const stock = await Stock.query({ client: trx })
+          .where('product_id', a.productId)
+          .where('warehouse_id', a.warehouseId)
+          .forUpdate()
+          .first()
+        if (!stock) {
+          throw new InsufficientStockError(a.productId, a.quantity, 0)
+        }
+        const available = computeAvailable(stock)
+        if (a.quantity > available) {
+          throw new InsufficientStockError(a.productId, a.quantity, available)
+        }
+        await recordMovementWithClient(trx, {
+          stockId: stock.id,
+          type: 'OUT',
+          quantity: a.quantity,
+          origin: ORDER_SHIPPED_MOVEMENT_ORIGIN,
+          referenceId: params.orderId,
+          createdBy: null,
+        })
+      }
+    } else {
+      for (const line of params.lines) {
+        const stock = await Stock.query({ client: trx })
+          .where('product_id', line.productId)
+          .where('warehouse_id', params.warehouseId!)
+          .forUpdate()
+          .first()
+        if (!stock) {
+          throw new InsufficientStockError(line.productId, line.quantity, 0)
+        }
+        const available = computeAvailable(stock)
+        if (line.quantity > available) {
+          throw new InsufficientStockError(line.productId, line.quantity, available)
+        }
+        await recordMovementWithClient(trx, {
+          stockId: stock.id,
+          type: 'OUT',
+          quantity: line.quantity,
+          origin: ORDER_SHIPPED_MOVEMENT_ORIGIN,
+          referenceId: params.orderId,
+          createdBy: null,
+        })
+      }
+    }
+
+    await ProcessedEvent.create(
+      {
+        eventId: dedupeId,
+        eventType: 'order.shipment.fulfill',
+        processedAt: DateTime.now(),
+      },
+      { client: trx }
+    )
+    return { alreadyFulfilled: false }
+  })
 }
 
 export async function incrementProductStock(params: {

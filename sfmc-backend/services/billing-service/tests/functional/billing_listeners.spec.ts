@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import Invoice from '#models/invoice'
+import Payment from '#models/payment'
 import CreditNote from '#models/credit_note'
 import ProcessedEvent from '#models/processed_event'
 import { onOrderValidated, onOrderCancelled } from '#listeners/billing_listeners'
@@ -10,6 +11,32 @@ test.group('Billing Listeners', (group) => {
   group.each.setup(async () => {
     await db.beginGlobalTransaction()
     return () => db.rollbackGlobalTransaction()
+  })
+
+  test('onOrderValidated creates PAID invoice + payment when prepaid mobile money', async ({ assert }) => {
+    const eventId = crypto.randomUUID()
+    const orderId = crypto.randomUUID()
+    const payload = {
+      orderId,
+      orderNumber: 'CMD-2026-077777',
+      customerId: crypto.randomUUID(),
+      totalAmount: 9900,
+      currency: 'XOF',
+      prepaidMobileMoney: {
+        providerReference: 'psp-ref-abc',
+        phone: '+22901512345678',
+      },
+    }
+
+    await onOrderValidated({ id: eventId, type: 'order.validated', payload })
+
+    const invoice = await Invoice.findBy('orderId', orderId)
+    assert.isNotNull(invoice)
+    assert.equal(invoice!.status, 'PAID')
+    const payments = await Payment.query().where('invoice_id', invoice!.id)
+    assert.lengthOf(payments, 1)
+    assert.equal(payments[0].method, 'MOBILE_MONEY')
+    assert.equal(Number(payments[0].amount), 9900)
   })
 
   test('onOrderValidated creates a PENDING invoice', async ({ assert }) => {

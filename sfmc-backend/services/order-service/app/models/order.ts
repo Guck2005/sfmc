@@ -12,6 +12,9 @@ export type OrderStatus =
   | 'DELIVERED'
   | 'CANCELLED'
 
+/** null = flux classique (validation immédiate après stock). */
+export type OrderPaymentStatus = 'AWAITING_MOBILE_MONEY' | 'PAID' | null
+
 export default class Order extends BaseModel {
   @column({ isPrimary: true })
   declare id: string
@@ -28,6 +31,15 @@ export default class Order extends BaseModel {
 
   @column()
   declare sagaStatus: string | null
+
+  @column({ columnName: 'payment_status' })
+  declare paymentStatus: OrderPaymentStatus
+
+  @column({ columnName: 'mobile_money_phone' })
+  declare mobileMoneyPhone: string | null
+
+  @column({ columnName: 'mobile_money_provider_ref' })
+  declare mobileMoneyProviderRef: string | null
 
   @column({ consume: (v) => Number(v) })
   declare totalAmount: number

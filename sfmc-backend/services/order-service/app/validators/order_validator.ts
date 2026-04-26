@@ -12,6 +12,10 @@ export const createOrderValidator = vine.compile(
         })
       )
       .minLength(1),
+    /**
+     * Optionnel. Chaîne vide ou format Bénin : `+22901` + 8 chiffres (ex. +22901512345678).
+     */
+    mobileMoneyPhone: vine.string().trim().regex(/^(\+22901\d{8})?$/).optional(),
   })
 )
 
@@ -26,5 +30,17 @@ export const updateStatusValidator = vine.compile(
       'DELIVERED',
       'CANCELLED',
     ] as const),
+    /** Mono-entrepôt lorsque `status` = `SHIPPED`. */
+    warehouseId: vine.string().uuid().optional(),
+    /** Multi-entrepôts (optionnel) : si non vide, prime sur `warehouseId`. */
+    allocations: vine
+      .array(
+        vine.object({
+          productId: vine.string().uuid(),
+          quantity: vine.number().positive(),
+          warehouseId: vine.string().uuid(),
+        })
+      )
+      .optional(),
   })
 )

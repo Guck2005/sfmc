@@ -1,5 +1,7 @@
 import { expect, type Page, type APIRequestContext } from '@playwright/test'
 
+import { paginationMeta } from '../src/lib/pagination'
+
 export type Role = 'ADMIN' | 'OPERATOR' | 'CLIENT'
 
 interface Credentials {
@@ -114,27 +116,36 @@ export async function findAvailableFinishedProduct(
   request: APIRequestContext,
   minQty = 1
 ): Promise<{ productId: string; unitPrice: number } | null> {
-  const stocksRes = await request.get('/api/v1/stocks', { failOnStatusCode: false })
-  if (!stocksRes.ok()) return null
-  const stocksBody = await stocksRes.json()
-  const stocks = (stocksBody.data ?? stocksBody ?? []) as Array<{
-    productId: string
-    quantity: number | string
-    reserved: number | string
-  }>
-  const candidate = stocks.find((s) => Number(s.quantity) - Number(s.reserved) >= minQty)
-  if (!candidate) return null
-
-  const productRes = await request.get(`/api/v1/products/${candidate.productId}`, {
-    failOnStatusCode: false,
-  })
-  let unitPrice = 1000
-  if (productRes.ok()) {
-    const pbody = await productRes.json()
-    const product = (pbody.data ?? pbody) as { unitPrice?: number }
-    if (product?.unitPrice != null) unitPrice = Number(product.unitPrice)
-  }
-  return { productId: candidate.productId, unitPrice }
+  let page = 1
+  let lastPage = 1
+  do {
+    const stocksRes = await request.get(`/api/v1/stocks?page=${page}&limit=100`, {
+      failOnStatusCode: false,
+    })
+    if (!stocksRes.ok()) return null
+    const stocksBody = await stocksRes.json()
+    const stocks = (stocksBody.data ?? stocksBody ?? []) as Array<{
+      productId: string
+      quantity: number | string
+      reserved: number | string
+    }>
+    const candidate = stocks.find((s) => Number(s.quantity) - Number(s.reserved) >= minQty)
+    if (candidate) {
+      const productRes = await request.get(`/api/v1/products/${candidate.productId}`, {
+        failOnStatusCode: false,
+      })
+      let unitPrice = 1000
+      if (productRes.ok()) {
+        const pbody = await productRes.json()
+        const product = (pbody.data ?? pbody) as { unitPrice?: number }
+        if (product?.unitPrice != null) unitPrice = Number(product.unitPrice)
+      }
+      return { productId: candidate.productId, unitPrice }
+    }
+    lastPage = paginationMeta(stocksBody)?.lastPage ?? 1
+    page++
+  } while (page <= lastPage)
+  return null
 }
 
 export async function waitForUrlMatch(

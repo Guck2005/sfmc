@@ -6,8 +6,9 @@ export interface AuthorizedUser {
 }
 
 export default class UserPolicy {
+  /** Liste des profils (ex. choix client pour une commande côté opérateur). */
   list(actor: AuthorizedUser): boolean {
-    return actor.role === 'ADMIN'
+    return actor.role === 'ADMIN' || actor.role === 'OPERATOR'
   }
 
   create(actor: AuthorizedUser): boolean {

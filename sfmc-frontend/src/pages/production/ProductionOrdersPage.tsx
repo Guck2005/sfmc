@@ -284,7 +284,12 @@ export default function ProductionOrdersPage() {
                 {orders.map((o) => {
                   const isTerminal = TERMINAL.includes(o.status)
                   return (
-                    <TableRow key={o.id}>
+                    <TableRow
+                      key={o.id}
+                      className="cursor-pointer"
+                      title="Voir le détail de l’OF"
+                      onClick={() => setDetailId(o.id)}
+                    >
                       <TableCell className="font-mono text-xs">{o.id.slice(0, 8)}</TableCell>
                       <TableCell className="max-w-[14rem]">
                         <div className="font-medium text-sm">{productLabel(o.productId)}</div>
@@ -301,7 +306,7 @@ export default function ProductionOrdersPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {o.startedAt ? formatDateTime(o.startedAt) : '—'}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end">
                           <RowActionsMenu ariaLabel={`Actions OF ${o.id.slice(0, 8)}`}>
                             <DropdownMenuItem onClick={() => setDetailId(o.id)}>

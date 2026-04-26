@@ -9,11 +9,21 @@ import {
   Factory,
   Loader2,
   Package,
+  Plus,
   ShoppingCart,
   Truck,
   XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -24,11 +34,46 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { ordersService } from '@/services'
+import { ordersService, inventoryService } from '@/services'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { extractErrorMessage } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
-import type { Order, OrderStatus } from '@/types/domain'
+import type { Order, OrderLine, OrderShipmentAllocation, OrderStatus, Warehouse } from '@/types/domain'
+
+type ShipAllocRow = { warehouseId: string; quantity: number }
+
+function validateSplitShip(lines: OrderLine[], splitRows: ShipAllocRow[][]): string | null {
+  if (splitRows.length !== lines.length) return 'Configuration incomplète'
+  for (let i = 0; i < lines.length; i++) {
+    const need = Number(lines[i].quantity)
+    const rows = splitRows[i]
+    if (!rows?.length) return 'Au moins une ligne d’origine par produit commandé'
+    let sum = 0
+    for (const r of rows) {
+      if (r.quantity < 0) return 'Quantité invalide'
+      if (Number(r.quantity) > 0 && !r.warehouseId) return 'Chaque fraction doit avoir un entrepôt'
+      sum += Number(r.quantity)
+    }
+    if (Math.abs(sum - need) > 1e-6) {
+      return `« ${lines[i].productName?.trim() || lines[i].productId.slice(0, 8)} » : total ${sum} ≠ commandé ${need}`
+    }
+  }
+  return null
+}
+
+function buildShipmentAllocations(lines: OrderLine[], splitRows: ShipAllocRow[][]): OrderShipmentAllocation[] {
+  const out: OrderShipmentAllocation[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const pid = lines[i].productId
+    for (const r of splitRows[i] ?? []) {
+      const q = Number(r.quantity)
+      if (q > 0 && r.warehouseId) {
+        out.push({ productId: pid, quantity: q, warehouseId: r.warehouseId })
+      }
+    }
+  }
+  return out
+}
 
 const STEPS: { status: OrderStatus; label: string; icon: typeof Circle }[] = [
   { status: 'PENDING', label: 'En attente', icon: Circle },
@@ -70,6 +115,10 @@ export default function OrderDetailPage() {
   const canManage = role === 'ADMIN' || role === 'OPERATOR'
   const isAdmin = role === 'ADMIN'
   const [selectedNext, setSelectedNext] = useState<OrderStatus | ''>('')
+  const [shipmentWarehouseId, setShipmentWarehouseId] = useState('')
+  const [shipMultiSplit, setShipMultiSplit] = useState(false)
+  const [splitRowsByLine, setSplitRowsByLine] = useState<ShipAllocRow[][]>([])
+  const [shipDialogOpen, setShipDialogOpen] = useState(false)
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', id],
@@ -79,10 +128,32 @@ export default function OrderDetailPage() {
     placeholderData: keepPreviousData,
   })
 
+  const { data: warehousesRaw } = useQuery({
+    queryKey: ['warehouses'],
+    queryFn: () => inventoryService.listWarehouses(),
+    enabled: canManage,
+  })
+  const warehouses: Warehouse[] = Array.isArray(warehousesRaw)
+    ? (warehousesRaw as Warehouse[])
+    : ((warehousesRaw as { data?: Warehouse[] })?.data ?? [])
+
   const transitionMutation = useMutation({
-    mutationFn: (nextStatus: OrderStatus) => ordersService.updateStatus(id!, nextStatus),
-    onSuccess: (updated, nextStatus) => {
+    mutationFn: (input: {
+      status: OrderStatus
+      warehouseId?: string
+      allocations?: OrderShipmentAllocation[]
+    }) =>
+      ordersService.updateStatus(id!, input.status, {
+        warehouseId: input.warehouseId,
+        allocations: input.allocations,
+      }),
+    onSuccess: (updated, variables) => {
+      const nextStatus = variables.status
       setSelectedNext('')
+      setShipmentWarehouseId('')
+      setShipMultiSplit(false)
+      setSplitRowsByLine([])
+      setShipDialogOpen(false)
       qc.setQueryData<Order | undefined>(['order', id], (prev) => {
         if (!prev) return prev
         return {
@@ -97,7 +168,9 @@ export default function OrderDetailPage() {
       void qc.invalidateQueries({ queryKey: ['orders'] })
     },
     onError: (err) => {
-      setSelectedNext('')
+      setShipmentWarehouseId('')
+      setShipMultiSplit(false)
+      setSplitRowsByLine([])
       toast.error(extractErrorMessage(err))
     },
   })
@@ -135,7 +208,20 @@ export default function OrderDetailPage() {
 
   useEffect(() => {
     setSelectedNext('')
+    setShipmentWarehouseId('')
+    setShipMultiSplit(false)
+    setSplitRowsByLine([])
+    setShipDialogOpen(false)
   }, [order?.status, order?.id])
+
+  useEffect(() => {
+    if (selectedNext !== 'SHIPPED') {
+      setShipmentWarehouseId('')
+      setShipMultiSplit(false)
+      setSplitRowsByLine([])
+      setShipDialogOpen(false)
+    }
+  }, [selectedNext])
 
   if (isLoading) {
     return <div className="py-12 text-center text-muted-foreground">Chargement…</div>
@@ -173,6 +259,29 @@ export default function OrderDetailPage() {
       ? selectedNext
       : undefined
 
+  const splitShipError =
+    shipDialogOpen &&
+    shipMultiSplit &&
+    order.lines.length > 0 &&
+    splitRowsByLine.length === order.lines.length
+      ? validateSplitShip(order.lines, splitRowsByLine)
+      : null
+
+  const closeShipDialog = () => {
+    setShipDialogOpen(false)
+    setShipmentWarehouseId('')
+    setShipMultiSplit(false)
+    setSplitRowsByLine([])
+    if (selectedNext === 'SHIPPED') setSelectedNext('')
+  }
+
+  const openShipDialog = () => {
+    setShipmentWarehouseId('')
+    setShipMultiSplit(false)
+    setSplitRowsByLine([])
+    setShipDialogOpen(true)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -190,17 +299,24 @@ export default function OrderDetailPage() {
             </p>
           ) : null}
         </div>
-        <Badge
-          variant={
-            isCancelled
-              ? 'destructive'
-              : order.status === 'DELIVERED'
-                ? 'success'
-                : 'secondary'
-          }
-        >
-          {ORDER_STATUS_LABELS[order.status] ?? order.status}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1">
+          <Badge
+            variant={
+              isCancelled
+                ? 'destructive'
+                : order.status === 'DELIVERED'
+                  ? 'success'
+                  : 'secondary'
+            }
+          >
+            {ORDER_STATUS_LABELS[order.status] ?? order.status}
+          </Badge>
+          {order.paymentStatus === 'AWAITING_MOBILE_MONEY' && (
+            <Badge variant="outline" className="text-xs">
+              Paiement mobile money en attente
+            </Badge>
+          )}
+        </div>
 
         {canChangeStatus && (
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -221,14 +337,14 @@ export default function OrderDetailPage() {
             </Select>
             <Button
               size="sm"
-              disabled={
-                !selectedNext ||
-                selectedNext === order.status ||
-                transitionMutation.isPending
-              }
+              disabled={!selectedNext || selectedNext === order.status || transitionMutation.isPending}
               onClick={() => {
                 if (!selectedNext) return
-                transitionMutation.mutate(selectedNext)
+                if (selectedNext === 'SHIPPED') {
+                  openShipDialog()
+                  return
+                }
+                transitionMutation.mutate({ status: selectedNext })
               }}
             >
               {transitionMutation.isPending && (
@@ -244,7 +360,7 @@ export default function OrderDetailPage() {
             variant="outline"
             className={canManage ? '' : 'ml-auto'}
             onClick={() => {
-              if (confirm('Annuler cette commande et libérer le stock réservé ?')) {
+              if (confirm('Annuler cette commande ? Les compensations système seront appliquées.')) {
                 cancelMutation.mutate()
               }
             }}
@@ -286,20 +402,209 @@ export default function OrderDetailPage() {
         )}
       </div>
 
+      <Dialog open={shipDialogOpen} onOpenChange={(open) => !open && closeShipDialog()}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Confirmer l’expédition</DialogTitle>
+            <DialogDescription>
+              Commande {order.orderNumber ?? order.id.slice(0, 8)} — les sorties de stock seront enregistrées
+              immédiatement.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded border-input"
+                checked={shipMultiSplit}
+                onChange={(e) => {
+                  const v = e.target.checked
+                  setShipMultiSplit(v)
+                  if (v) {
+                    setSplitRowsByLine(
+                      order.lines.map((l) => [{ warehouseId: '', quantity: Number(l.quantity) }])
+                    )
+                    setShipmentWarehouseId('')
+                  } else {
+                    setSplitRowsByLine([])
+                  }
+                }}
+              />
+              Répartir sur plusieurs entrepôts
+            </label>
+            {!shipMultiSplit && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Toute la commande part du même entrepôt.</p>
+                <Select value={shipmentWarehouseId || undefined} onValueChange={setShipmentWarehouseId}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Choisir l’entrepôt d’expédition…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {shipMultiSplit && (
+              <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3 text-sm">
+                <p className="text-xs text-muted-foreground">
+                  Pour chaque ligne, la somme des quantités doit égaler la quantité commandée.
+                </p>
+                {order.lines.map((line, lineIdx) => (
+                  <div key={line.id ?? `${line.productId}-${lineIdx}`} className="space-y-2">
+                    <div className="text-xs font-medium">
+                      {(line.productName && line.productName.trim()) || 'Produit'}{' '}
+                      <span className="font-mono text-muted-foreground">× {line.quantity}</span>
+                    </div>
+                    {(splitRowsByLine[lineIdx] ?? []).map((row, rowIdx) => (
+                      <div key={rowIdx} className="flex flex-wrap items-center gap-2">
+                        <Select
+                          value={row.warehouseId || undefined}
+                          onValueChange={(wid) => {
+                            setSplitRowsByLine((prev) => {
+                              const copy = prev.map((arr) => arr.map((x) => ({ ...x })))
+                              if (!copy[lineIdx]) copy[lineIdx] = []
+                              copy[lineIdx][rowIdx] = { ...copy[lineIdx][rowIdx], warehouseId: wid }
+                              return copy
+                            })
+                          }}
+                        >
+                          <SelectTrigger className="w-[min(100%,220px)] h-8">
+                            <SelectValue placeholder="Entrepôt" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {warehouses.map((w) => (
+                              <SelectItem key={w.id} value={w.id}>
+                                {w.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          className="h-8 w-24 font-mono text-sm"
+                          aria-label={`Quantité origine ${rowIdx + 1}`}
+                          value={row.quantity === 0 ? '' : String(row.quantity)}
+                          onChange={(e) => {
+                            const raw = e.target.value
+                            const num = raw === '' ? 0 : Number(raw)
+                            setSplitRowsByLine((prev) => {
+                              const copy = prev.map((arr) => arr.map((x) => ({ ...x })))
+                              if (!copy[lineIdx]) copy[lineIdx] = []
+                              copy[lineIdx][rowIdx] = {
+                                ...copy[lineIdx][rowIdx],
+                                quantity: Number.isFinite(num) ? num : 0,
+                              }
+                              return copy
+                            })
+                          }}
+                        />
+                        {(splitRowsByLine[lineIdx]?.length ?? 0) > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive"
+                            onClick={() => {
+                              setSplitRowsByLine((prev) => {
+                                const copy = prev.map((arr) => [...arr])
+                                copy[lineIdx] = copy[lineIdx].filter((_, j) => j !== rowIdx)
+                                return copy
+                              })
+                            }}
+                          >
+                            Retirer
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setSplitRowsByLine((prev) => {
+                          const copy = prev.map((arr) => [...arr])
+                          if (!copy[lineIdx]) copy[lineIdx] = []
+                          copy[lineIdx] = [...copy[lineIdx], { warehouseId: '', quantity: 0 }]
+                          return copy
+                        })
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      Autre origine
+                    </Button>
+                  </div>
+                ))}
+                {splitShipError ? <p className="text-xs text-destructive">{splitShipError}</p> : null}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={closeShipDialog}>
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                transitionMutation.isPending ||
+                (!shipMultiSplit && !shipmentWarehouseId) ||
+                (shipMultiSplit &&
+                  (!!splitShipError ||
+                    splitRowsByLine.length !== order.lines.length ||
+                    splitRowsByLine.length === 0))
+              }
+              onClick={() => {
+                if (shipMultiSplit) {
+                  const err = validateSplitShip(order.lines, splitRowsByLine)
+                  if (err) {
+                    toast.error(err)
+                    return
+                  }
+                  const allocations = buildShipmentAllocations(order.lines, splitRowsByLine)
+                  if (!allocations.length) {
+                    toast.error('Aucune quantité à expédier')
+                    return
+                  }
+                  transitionMutation.mutate({ status: 'SHIPPED', allocations })
+                  return
+                }
+                if (!shipmentWarehouseId) {
+                  toast.error('Choisissez l’entrepôt d’expédition')
+                  return
+                }
+                transitionMutation.mutate({ status: 'SHIPPED', warehouseId: shipmentWarehouseId })
+              }}
+            >
+              {transitionMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirmer l’expédition
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {canChangeStatus && (
         <Card className="border-muted bg-muted/20">
           <CardHeader className="py-3">
             <CardTitle className="text-sm font-medium text-foreground">À propos des statuts</CardTitle>
             <CardDescription className="text-xs leading-relaxed space-y-2 block">
               <span className="block">
-                <strong>Validée</strong> : en principe <strong>automatique</strong> dès que le stock est réservé
-                pour la commande. Le menu permet aussi de corriger manuellement les états (y compris revenir en
-                arrière), sauf une fois la commande <strong>livrée</strong>.
+                <strong>Validée</strong> : en principe <strong>automatique</strong> dès que la disponibilité
+                globale est confirmée pour la commande. Le menu permet aussi de corriger manuellement les états
+                (y compris revenir en arrière), sauf une fois la commande <strong>livrée</strong>.
               </span>
               <span className="block pt-1">
-                <strong>Expédiée</strong> : la marchandise <strong>part</strong>. <strong>Livrée</strong> :{' '}
-                <strong>réception confirmée</strong> — état final sans changement de statut par ce menu. Pour
-                une annulation, utilisez le bouton dédié.
+                <strong>Expédiée</strong> : après avoir choisi ce statut et cliqué <strong>Appliquer</strong>, une
+                fenêtre vous demande l’entrepôt (ou une répartition multi-entrepôts) avant de déduire le stock.{' '}
+                <strong>Livrée</strong> : <strong>réception confirmée</strong> — état final sans changement de
+                statut par ce menu. Pour une annulation, utilisez le bouton dédié.
               </span>
             </CardDescription>
           </CardHeader>

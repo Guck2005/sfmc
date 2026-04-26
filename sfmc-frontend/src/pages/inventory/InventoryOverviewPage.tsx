@@ -6,15 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { useProductNameMap } from '@/hooks/use-product-name-map'
 import { isKnownCatalogProductId } from '@/lib/catalog'
 import { inventoryService } from '@/services'
-import { asArray } from '@/lib/pagination'
+import { asArray, paginationMeta } from '@/lib/pagination'
 import type { StockAlert } from '@/types/domain'
 
 export default function InventoryOverviewPage() {
   const { productLabel, nameById } = useProductNameMap({ limit: 200 })
 
   const { data: stocksData } = useQuery({
-    queryKey: ['stocks'],
-    queryFn: () => inventoryService.listStocks(),
+    queryKey: ['stocks', 'overview-kpi'],
+    queryFn: () => inventoryService.listStocks({ page: 1, limit: 1 }),
   })
 
   const { data: warehousesData } = useQuery({
@@ -28,7 +28,7 @@ export default function InventoryOverviewPage() {
     refetchInterval: 15_000,
   })
 
-  const stocks = asArray(stocksData)
+  const refLineCount = paginationMeta(stocksData)?.total ?? 0
   const warehouses = asArray(warehousesData)
   const alerts = asArray<StockAlert>(alertsData)
 
@@ -42,7 +42,7 @@ export default function InventoryOverviewPage() {
             </div>
             <div>
               <div className="text-xs uppercase text-muted-foreground">Références</div>
-              <div className="text-2xl font-bold">{stocks.length}</div>
+              <div className="text-2xl font-bold">{refLineCount}</div>
             </div>
           </CardContent>
         </Card>

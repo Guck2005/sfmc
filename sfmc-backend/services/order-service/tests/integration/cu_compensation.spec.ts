@@ -42,12 +42,20 @@ async function tryJson(url: string, opts: any = {}): Promise<{ status: number; b
 }
 
 async function anyProduct(): Promise<string | null> {
-  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`, {
-    headers: { authorization: `Bearer ${serviceToken()}` },
-  })
-  if (!res || res.status !== 200) return null
-  const stocks = res.body.data || res.body
-  return (stocks as any[])[0]?.productId ?? null
+  let page = 1
+  let lastPage = 1
+  do {
+    const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks?page=${page}&limit=100`, {
+      headers: { authorization: `Bearer ${serviceToken()}` },
+    })
+    if (!res || res.status !== 200) return null
+    const stocks = res.body.data || res.body
+    const id = (stocks as any[])[0]?.productId
+    if (id) return id
+    lastPage = Number(res.body.meta?.lastPage) || 1
+    page++
+  } while (page <= lastPage)
+  return null
 }
 
 test.group('Compensation Saga — CU-01 branche erreur', (group) => {

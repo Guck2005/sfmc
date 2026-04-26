@@ -27,6 +27,8 @@ export type EventType =
   | 'inventory.pending_reception'
   // Billing events
   | 'billing.invoice_created'
+  | 'billing.invoice_paid'
+  | 'billing.credit_note_created'
   // Auth / User events
   | 'user.created'
   | 'user.updated'
@@ -56,6 +58,14 @@ export interface OrderValidatedPayload {
   customerEmail?: string
   totalAmount: number
   currency?: string
+  /**
+   * Encaissement mobile money déjà confirmé avant validation commande.
+   * Si présent : la facture doit être créée en PAID avec un paiement MOBILE_MONEY.
+   */
+  prepaidMobileMoney?: {
+    providerReference: string
+    phone: string
+  }
 }
 
 export interface OrderCancelledPayload {
@@ -67,12 +77,23 @@ export interface OrderCancelledPayload {
   lines?: Array<{ productId: string; quantity: number }>
 }
 
+export interface OrderShippedAllocation {
+  productId: string
+  quantity: number
+  warehouseId: string
+}
+
 export interface OrderShippedPayload {
   orderId: string
   orderNumber?: string
   customerId: string
   customerEmail?: string
   shippedAt: string
+  lines: Array<{ productId: string; quantity: number }>
+  /** Mono-entrepôt : tout depuis ce dépôt. */
+  warehouseId?: string
+  /** Multi-entrepôts : quantités par produit et par entrepôt (sommes = `lines` par produit). */
+  allocations?: OrderShippedAllocation[]
 }
 
 export interface OrderDeliveredPayload {
@@ -93,6 +114,32 @@ export interface InvoiceCreatedPayload {
   customerEmail?: string
   amount: number
   currency: string
+}
+
+/** Facture entièrement acquittée (ex. après enregistrement paiement opérateur). */
+export interface InvoicePaidPayload {
+  invoiceId: string
+  invoiceNumber: string
+  orderId: string
+  orderNumber?: string
+  customerId: string | null
+  customerEmail?: string | null
+  amount: number
+  currency: string
+}
+
+/** Avoir émis après annulation d’une commande déjà payée. */
+export interface CreditNoteCreatedPayload {
+  creditNoteId: string
+  invoiceId: string
+  invoiceNumber: string
+  orderId: string
+  orderNumber?: string
+  customerId: string | null
+  customerEmail?: string
+  amount: number
+  currency: string
+  reason?: string
 }
 
 export interface InventoryReservedPayload {

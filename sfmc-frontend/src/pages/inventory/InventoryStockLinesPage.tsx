@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Loader2, SlidersHorizontal, Warehouse as WarehouseIcon } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Loader2, SlidersHorizontal, Warehouse as WarehouseIcon } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,7 @@ import {
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { RowActionsMenu } from '@/components/RowActionsMenu'
 import { inventoryService } from '@/services'
-import { asArray } from '@/lib/pagination'
+import { asArray, paginationMeta } from '@/lib/pagination'
 import { useProductNameMap } from '@/hooks/use-product-name-map'
 import { extractErrorMessage } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -36,6 +36,8 @@ import type { Stock, Warehouse } from '@/types/domain'
 import { isKnownCatalogProductId } from '@/lib/catalog'
 import { warehouseLabel } from './inventory-shared'
 
+const STOCK_LINES_PAGE_SIZE = 20
+
 export default function InventoryStockLinesPage() {
   const qc = useQueryClient()
   const isAdmin = useAuthStore((s) => s.hasRole('ADMIN'))
@@ -44,10 +46,16 @@ export default function InventoryStockLinesPage() {
   const [detailProductId, setDetailProductId] = useState<string | null>(null)
   const [thresholdStock, setThresholdStock] = useState<Stock | null>(null)
   const [thresholdInput, setThresholdInput] = useState('')
+  const [stocksPage, setStocksPage] = useState(1)
+
+  const listParams = useMemo(
+    () => ({ page: stocksPage, limit: STOCK_LINES_PAGE_SIZE }),
+    [stocksPage]
+  )
 
   const { data: stocksData, isLoading: loadingStocks } = useQuery({
-    queryKey: ['stocks'],
-    queryFn: () => inventoryService.listStocks(),
+    queryKey: ['stocks', 'lines', listParams],
+    queryFn: () => inventoryService.listStocks(listParams),
   })
 
   const { data: warehousesData } = useQuery({
@@ -64,6 +72,8 @@ export default function InventoryStockLinesPage() {
   })
 
   const stocks = asArray<Stock>(stocksData)
+  const stocksListMeta = paginationMeta(stocksData)
+  const stocksTotal = stocksListMeta?.total ?? 0
   const warehouses = asArray<Warehouse>(warehousesData)
 
   function openProductWarehouses(productId: string) {
@@ -104,9 +114,10 @@ export default function InventoryStockLinesPage() {
         <CardContent>
           {loadingStocks ? (
             <div className="py-12 text-center text-muted-foreground">Chargement…</div>
-          ) : stocks.length === 0 ? (
+          ) : stocksTotal === 0 ? (
             <DataTableEmpty message="Aucun stock enregistré." />
           ) : (
+            <>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -180,6 +191,45 @@ export default function InventoryStockLinesPage() {
                 })}
               </TableBody>
             </Table>
+            {stocksListMeta && stocksListMeta.total > 0 ? (
+              <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Page <span className="font-medium text-foreground">{stocksListMeta.page}</span> sur{' '}
+                  <span className="font-medium text-foreground">{stocksListMeta.lastPage}</span>
+                  {' · '}
+                  {stocksListMeta.total} ligne{stocksListMeta.total > 1 ? 's' : ''} au total
+                  {stocksListMeta.total > stocks.length ? (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      ({stocks.length} affichée{stocks.length > 1 ? 's' : ''} sur cette page)
+                    </span>
+                  ) : null}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={stocksPage <= 1 || loadingStocks}
+                    onClick={() => setStocksPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="mr-1 h-4 w-4" />
+                    Précédent
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={stocksPage >= stocksListMeta.lastPage || loadingStocks}
+                    onClick={() => setStocksPage((p) => Math.min(stocksListMeta.lastPage, p + 1))}
+                  >
+                    Suivant
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            </>
           )}
         </CardContent>
       </Card>

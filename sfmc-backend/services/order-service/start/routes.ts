@@ -14,6 +14,12 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { HeaderMap } from '@apollo/server'
 import { middleware } from '#start/kernel'
 
+/** Webhook PSP — sans JWT ; authentification par HMAC (PAYMENT_WEBHOOK_SECRET). */
+router.post('/api/v1/webhooks/mobile-money', [
+  () => import('#controllers/payment_webhook_controller'),
+  'handleMobileMoney',
+])
+
 router.get('/health', async ({ response }: HttpContext) => {
   const checks: Record<string, string> = {}
   let allOk = true
@@ -39,6 +45,11 @@ router
   .group(() => {
     router.post('/', [() => import('#controllers/orders_controller'), 'store'])
     router.get('/', [() => import('#controllers/orders_controller'), 'index'])
+    router.post('/:id/mobile-money/init', [() => import('#controllers/orders_controller'), 'initMobileMoney'])
+    router.post('/:id/mobile-money/complete-local', [
+      () => import('#controllers/orders_controller'),
+      'completeMobileMoneyLocal',
+    ])
     router.get('/:id', [() => import('#controllers/orders_controller'), 'show'])
     router.post('/:id/cancel', [() => import('#controllers/orders_controller'), 'cancel'])
     router.put('/:id/status', [() => import('#controllers/orders_controller'), 'updateStatus'])

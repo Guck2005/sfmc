@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { MachineStatus, ProductionStatus } from '@/types/domain'
+import type { MachineStatus, ProductCategory, ProductionStatus } from '@/types/domain'
 
 export const STATUS_COLORS: Record<
   ProductionStatus,
@@ -37,6 +37,15 @@ export const MACHINE_STATUS_LABEL: Record<MachineStatus, string> = {
   AVAILABLE: 'Disponible',
   IN_USE: 'En production',
   MAINTENANCE: 'Maintenance',
+}
+
+export const MACHINE_CATEGORIES: ProductCategory[] = ['CIMENT', 'FER', 'BRIQUES', 'GRANULATS']
+
+export const MACHINE_CATEGORY_LABEL: Record<ProductCategory, string> = {
+  CIMENT: 'Ciment',
+  FER: 'Fer',
+  BRIQUES: 'Briques',
+  GRANULATS: 'Granulats',
 }
 
 export const productionOrderSchema = z.object({

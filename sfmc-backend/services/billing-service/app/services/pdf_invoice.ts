@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit'
 import { PassThrough } from 'node:stream'
 import Invoice from '#models/invoice'
 import Payment from '#models/payment'
+import { formatPdfAmount } from '#services/pdf_amount_format'
 
 /**
  * Generates a Buffer containing a PDF representation of an invoice.
@@ -73,8 +74,8 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
     .fontSize(10)
     .text(`Commande ${orderLabel}`, 50, row, { width: 240 })
     .text('1', 300, row, { width: 60, align: 'right' })
-    .text(formatAmount(invoice.amount, invoice.currency), 370, row, { width: 80, align: 'right' })
-    .text(formatAmount(invoice.amount, invoice.currency), 460, row, { width: 80, align: 'right' })
+    .text(formatPdfAmount(invoice.amount, invoice.currency), 370, row, { width: 80, align: 'right' })
+    .text(formatPdfAmount(invoice.amount, invoice.currency), 460, row, { width: 80, align: 'right' })
 
   // ---- Totals / payments ----------------------------------------------------
   const totalsTop = row + 50
@@ -82,18 +83,18 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
     .moveTo(300, totalsTop - 10).lineTo(550, totalsTop - 10).strokeColor('#0a3d62').stroke()
     .fontSize(10)
     .text('Total facture', 300, totalsTop, { width: 160, align: 'right' })
-    .text(formatAmount(invoice.amount, invoice.currency), 460, totalsTop, {
+    .text(formatPdfAmount(invoice.amount, invoice.currency), 460, totalsTop, {
       width: 80,
       align: 'right',
     })
     .text('Total payé', 300, totalsTop + 18, { width: 160, align: 'right' })
-    .text(formatAmount(totalPaid, invoice.currency), 460, totalsTop + 18, {
+    .text(formatPdfAmount(totalPaid, invoice.currency), 460, totalsTop + 18, {
       width: 80,
       align: 'right',
     })
     .fillColor(remaining > 0 ? '#b71c1c' : '#1b5e20')
     .text('Reste à payer', 300, totalsTop + 36, { width: 160, align: 'right' })
-    .text(formatAmount(remaining, invoice.currency), 460, totalsTop + 36, {
+    .text(formatPdfAmount(remaining, invoice.currency), 460, totalsTop + 36, {
       width: 80,
       align: 'right',
     })
@@ -122,9 +123,4 @@ export async function buildInvoicePdf(invoice: Invoice): Promise<Buffer> {
   })
 
   return Buffer.concat(chunks)
-}
-
-function formatAmount(amount: number, currency: string): string {
-  const n = Number(amount)
-  return `${n.toLocaleString('fr-FR', { minimumFractionDigits: 0 })} ${currency}`
 }

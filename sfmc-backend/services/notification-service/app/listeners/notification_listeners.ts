@@ -1,6 +1,13 @@
 import Notification from '#models/notification'
 import ProcessedEvent from '#models/processed_event'
+import {
+  fetchCreditNotePdfBuffer,
+  fetchInvoicePdfBuffer,
+  safeCreditNotePdfFilename,
+  safeInvoicePdfFilename,
+} from '#services/billing_pdf_client'
 import { dispatch } from '#services/dispatcher'
+import type { EmailAttachment } from '#services/dispatcher'
 import logger from '@adonisjs/core/services/logger'
 import env from '#start/env'
 
@@ -43,7 +50,8 @@ async function sendEmailNotification(
   recipients: string[],
   type: string,
   subject: string,
-  body: string
+  body: string,
+  attachments?: EmailAttachment[]
 ): Promise<void> {
   const alreadyProcessed = await ProcessedEvent.find(event.id)
   if (alreadyProcessed) {
@@ -53,7 +61,13 @@ async function sendEmailNotification(
 
   const targets = recipients.length === 0 ? [adminEmail()] : recipients
   for (const recipient of targets) {
-    const success = await dispatch({ recipient, subject, body, channel: 'EMAIL' })
+    const success = await dispatch({
+      recipient,
+      subject,
+      body,
+      channel: 'EMAIL',
+      ...(attachments?.length ? { attachments } : {}),
+    })
     await Notification.create({
       recipient,
       type,
@@ -188,12 +202,93 @@ export async function onBillingInvoiceCreated(event: any) {
 
   const invRef = payload.invoiceNumber ?? payload.invoiceId
   const ordRef = payload.orderNumber ?? payload.orderId
+  const pdfBuf = await fetchInvoicePdfBuffer(payload.invoiceId)
+  const attachments: EmailAttachment[] | undefined =
+    pdfBuf != null
+      ? [
+          {
+            filename: safeInvoicePdfFilename(payload.invoiceNumber, payload.invoiceId),
+            content: pdfBuf,
+          },
+        ]
+      : undefined
+
   await sendEmailNotification(
     event,
     recipients,
     'INVOICE_CREATED',
     `Facture ${invRef} générée`,
-    `Une facture a été générée :\n\nFacture : ${invRef}\nCommande : ${ordRef}\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}\n\nVous pouvez la consulter ou la télécharger depuis votre espace client.\nSFMC Bénin`
+    `Une facture a été générée :\n\nFacture : ${invRef}\nCommande : ${ordRef}\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}\n\n` +
+      (attachments
+        ? 'Vous trouverez la facture en pièce jointe (PDF). Vous pouvez aussi la consulter depuis votre espace client.\n'
+        : 'Vous pouvez la consulter ou la télécharger depuis votre espace client.\n') +
+      'SFMC Bénin',
+    attachments
+  )
+}
+
+export async function onBillingInvoicePaid(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received billing.invoice_paid')
+  const payload = event.payload
+  const recipients = uniqueRecipients([payload.customerEmail, financeEmail()])
+
+  const invRef = payload.invoiceNumber ?? payload.invoiceId
+  const ordRef = payload.orderNumber ?? payload.orderId
+  const pdfBuf = await fetchInvoicePdfBuffer(payload.invoiceId)
+  const attachments: EmailAttachment[] | undefined =
+    pdfBuf != null
+      ? [
+          {
+            filename: safeInvoicePdfFilename(payload.invoiceNumber, payload.invoiceId),
+            content: pdfBuf,
+          },
+        ]
+      : undefined
+
+  await sendEmailNotification(
+    event,
+    recipients,
+    'INVOICE_PAID',
+    `Facture ${invRef} acquittée`,
+    `Bonjour,\n\nVotre facture ${invRef} (commande ${ordRef}) est enregistrée comme entièrement payée.\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}.\n\n` +
+      (attachments
+        ? 'La facture actualisée est jointe en PDF.\n'
+        : 'Vous pouvez télécharger la facture depuis votre espace client.\n') +
+      '\nSFMC Bénin',
+    attachments
+  )
+}
+
+export async function onBillingCreditNoteCreated(event: any) {
+  logger.info({ eventId: event.id }, '[notification] received billing.credit_note_created')
+  const payload = event.payload
+  const recipients = uniqueRecipients([payload.customerEmail, financeEmail()])
+
+  const invRef = payload.invoiceNumber ?? payload.invoiceId
+  const ordRef = payload.orderNumber ?? payload.orderId
+  const pdfBuf = await fetchCreditNotePdfBuffer(payload.invoiceId)
+  const attachments: EmailAttachment[] | undefined =
+    pdfBuf != null
+      ? [
+          {
+            filename: safeCreditNotePdfFilename(payload.creditNoteId),
+            content: pdfBuf,
+          },
+        ]
+      : undefined
+
+  await sendEmailNotification(
+    event,
+    recipients,
+    'CREDIT_NOTE_CREATED',
+    `Avoir — facture ${invRef}`,
+    `Bonjour,\n\nSuite à l’annulation de la commande ${ordRef}, un avoir a été émis pour la facture ${invRef}.\nMontant : ${payload.amount} ${payload.currency ?? 'XOF'}.\n` +
+      `Motif : ${payload.reason ?? 'Annulation commande après paiement'}.\n\n` +
+      (attachments
+        ? 'L’avoir est joint en PDF.\n'
+        : 'Vous pouvez télécharger l’avoir depuis votre espace client (factures).\n') +
+      '\nSFMC Bénin',
+    attachments
   )
 }
 

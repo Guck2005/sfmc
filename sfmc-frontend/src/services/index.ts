@@ -16,6 +16,7 @@ import type {
   Notification,
   Order,
   OrderLine,
+  OrderShipmentAllocation,
   OrderStatus,
   PaginatedResponse,
   Payment,
@@ -157,7 +158,7 @@ export const productsService = {
 
 export const inventoryService = {
   // Stocks
-  listStocks: (params?: { productId?: string; warehouseId?: string; page?: number }) =>
+  listStocks: (params?: { productId?: string; warehouseId?: string; page?: number; limit?: number }) =>
     api.get<PaginatedResponse<Stock> | Stock[]>('/stocks', { params }).then((r) => r.data),
   alerts: () => api.get<Envelope<StockAlert[]> | StockAlert[]>('/stocks/alerts').then((r) => {
     const body = r.data as any
@@ -304,12 +305,38 @@ export const ordersService = {
     limit?: number
     status?: OrderStatus
     customerId?: string
+    /** YYYY-MM-DD — filtre sur `created_at` (début de journée locale). */
+    from?: string
+    /** YYYY-MM-DD — filtre sur `created_at` (fin de journée locale). */
+    to?: string
   }) => api.get<PaginatedResponse<Order>>('/orders', { params }).then((r) => r.data),
   get: (id: string) => api.get<Envelope<Order>>(`/orders/${id}`).then(unwrap<Order>()),
-  create: (payload: { customerId: string; lines: OrderLine[] }) =>
-    api.post<Envelope<Order>>('/orders', payload).then(unwrap<Order>()),
-  updateStatus: (id: string, status: OrderStatus) =>
-    api.put<Envelope<Order>>(`/orders/${id}/status`, { status }).then(unwrap<Order>()),
+  create: (payload: {
+    customerId: string
+    lines: OrderLine[]
+    mobileMoneyPhone?: string
+  }) => api.post<Envelope<Order>>('/orders', payload).then(unwrap<Order>()),
+  initMobileMoney: (orderId: string, phone: string) =>
+    api
+      .post<{ data: Order; mobileMoney: { providerBaseUrlConfigured: boolean; providerBaseUrl: string | null; message: string } }>(
+        `/orders/${orderId}/mobile-money/init`,
+        { phone }
+      )
+      .then((r) => r.data),
+  completeMobileMoneyLocal: (orderId: string) =>
+    api.post<Envelope<Order>>(`/orders/${orderId}/mobile-money/complete-local`).then(unwrap<Order>()),
+  updateStatus: (
+    id: string,
+    status: OrderStatus,
+    opts?: { warehouseId?: string; allocations?: OrderShipmentAllocation[] }
+  ) =>
+    api
+      .put<Envelope<Order>>(`/orders/${id}/status`, {
+        status,
+        ...(opts?.warehouseId ? { warehouseId: opts.warehouseId } : {}),
+        ...(opts?.allocations?.length ? { allocations: opts.allocations } : {}),
+      })
+      .then(unwrap<Order>()),
   cancel: (id: string, reason?: string) =>
     api.post<Envelope<Order>>(`/orders/${id}/cancel`, { reason }).then(unwrap<Order>()),
   remove: (id: string) => api.delete(`/orders/${id}`),
@@ -336,6 +363,13 @@ export const productionService = {
     api.post(`/production-orders/${id}/quality`, payload).then((r) => r.data),
   listMachines: (params?: { status?: string; category?: string; page?: number; limit?: number }) =>
     api.get<PaginatedResponse<Machine> | Machine[]>('/machines', { params }).then((r) => r.data),
+  getMachine: (id: string) =>
+    api.get<Envelope<Machine>>(`/machines/${id}`).then(unwrap<Machine>()),
+  createMachine: (payload: {
+    name: string
+    category?: Machine['category'] | undefined
+    status?: Machine['status']
+  }) => api.post<Envelope<Machine>>('/machines', payload).then(unwrap<Machine>()),
   updateMachineStatus: (id: string, status: Machine['status']) =>
     api.put<Envelope<Machine>>(`/machines/${id}/status`, { status }).then(unwrap<Machine>()),
 }

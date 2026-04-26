@@ -25,10 +25,12 @@ export default class UsersController {
 
     const page = request.input('page', 1)
     const limit = request.input('limit', 20)
-    const users = await User.query()
-      .where('is_active', true)
-      .orderBy('created_at', 'desc')
-      .paginate(page, limit)
+    const roleFilter = request.input('role') as string | undefined
+    const q = User.query().where('is_active', true).orderBy('created_at', 'desc')
+    if (roleFilter === 'ADMIN' || roleFilter === 'OPERATOR' || roleFilter === 'CLIENT') {
+      q.where('role', roleFilter)
+    }
+    const users = await q.paginate(page, limit)
 
     return response.ok({
       data: users.all(),

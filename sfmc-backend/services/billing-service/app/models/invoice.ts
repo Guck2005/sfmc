@@ -20,6 +20,10 @@ export default class Invoice extends BaseModel {
   @column()
   declare customerId: string | null
 
+  /** E-mail client (copie depuis `order.validated`) pour notifications facture. */
+  @column({ columnName: 'customer_email' })
+  declare customerEmail: string | null
+
   @column()
   declare amount: number
 

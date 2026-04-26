@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Mail, MessageSquare, Smartphone } from 'lucide-react'
+import { Bell, ChevronLeft, ChevronRight, Mail, MessageSquare, Smartphone } from 'lucide-react'
 
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -20,10 +21,12 @@ import {
 } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { notificationsService } from '@/services'
-import { asArray } from '@/lib/pagination'
+import { asArray, paginationMeta } from '@/lib/pagination'
 import { formatDateTime } from '@/lib/utils'
 import { DataTableEmpty } from '@/components/DataTableEmpty'
 import type { Notification } from '@/types/domain'
+
+const NOTIFICATIONS_PAGE_SIZE = 20
 
 const CHANNEL_ICONS: Record<string, typeof Mail> = {
   EMAIL: Mail,
@@ -43,10 +46,16 @@ function payloadPreview(raw: string | null | undefined): string {
 export default function NotificationsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('__all__')
   const [channelFilter, setChannelFilter] = useState<string>('__all__')
+  const [notificationsPage, setNotificationsPage] = useState(1)
   const [detailId, setDetailId] = useState<string | null>(null)
 
+  useEffect(() => {
+    setNotificationsPage(1)
+  }, [statusFilter, channelFilter])
+
   const listParams = {
-    limit: 100 as const,
+    page: notificationsPage,
+    limit: NOTIFICATIONS_PAGE_SIZE,
     ...(statusFilter !== '__all__' ? { status: statusFilter } : {}),
     ...(channelFilter !== '__all__' ? { channel: channelFilter } : {}),
   }
@@ -64,6 +73,7 @@ export default function NotificationsPage() {
   })
 
   const notifications = asArray<Notification>(data)
+  const listMeta = paginationMeta(data)
 
   return (
     <Card>
@@ -108,7 +118,8 @@ export default function NotificationsPage() {
         ) : notifications.length === 0 ? (
           <DataTableEmpty message="Aucune notification pour ces filtres" />
         ) : (
-          <Table>
+          <>
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Canal</TableHead>
@@ -156,6 +167,45 @@ export default function NotificationsPage() {
               })}
             </TableBody>
           </Table>
+            {listMeta && listMeta.total > 0 ? (
+              <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Page <span className="font-medium text-foreground">{listMeta.page}</span> sur{' '}
+                  <span className="font-medium text-foreground">{listMeta.lastPage}</span>
+                  {' · '}
+                  {listMeta.total} notification{listMeta.total > 1 ? 's' : ''} au total
+                  {listMeta.total > notifications.length ? (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      ({notifications.length} affichée{notifications.length > 1 ? 's' : ''} sur cette page)
+                    </span>
+                  ) : null}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={notificationsPage <= 1 || isLoading}
+                    onClick={() => setNotificationsPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="mr-1 h-4 w-4" />
+                    Précédent
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={notificationsPage >= listMeta.lastPage || isLoading}
+                    onClick={() => setNotificationsPage((p) => Math.min(listMeta.lastPage, p + 1))}
+                  >
+                    Suivant
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </>
         )}
       </CardContent>
 

@@ -12,8 +12,8 @@ test.group('UserPolicy — RBAC', () => {
     assert.isFalse(policy.list({ id: 'c1', role: 'CLIENT' }))
   })
 
-  test('OPERATOR ne peut pas lister les utilisateurs', ({ assert }) => {
-    assert.isFalse(policy.list({ id: 'o1', role: 'OPERATOR' }))
+  test('OPERATOR peut lister les utilisateurs (ex. choix client commande)', ({ assert }) => {
+    assert.isTrue(policy.list({ id: 'o1', role: 'OPERATOR' }))
   })
 
   test('ADMIN peut créer un utilisateur', ({ assert }) => {

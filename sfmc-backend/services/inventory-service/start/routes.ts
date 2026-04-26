@@ -45,6 +45,10 @@ router
       () => import('#controllers/stocks_controller'),
       'checkAvailability',
     ])
+    router.post('/fulfill-shipment', [
+      () => import('#controllers/stocks_controller'),
+      'fulfillShipment',
+    ])
   })
   .prefix('/api/v1/stocks')
 

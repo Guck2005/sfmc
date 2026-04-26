@@ -1,10 +1,13 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import Invoice from '#models/invoice'
 import CreditNote from '#models/credit_note'
 import Payment from '#models/payment'
 import vine from '@vinejs/vine'
+import type { InvoicePaidPayload } from '@sfmc/event-contracts'
 import { buildInvoicePdf } from '#services/pdf_invoice'
 import { buildCreditNotePdf } from '#services/pdf_credit_note'
+import { publishBillingEvent } from '#services/billing_event_publish'
 
 const INVOICE_STATUSES = ['PENDING', 'PAID', 'CANCELLED', 'REFUNDED'] as const
 
@@ -103,6 +106,7 @@ export default class InvoicesController {
       })
     }
     const invoice = await Invoice.findOrFail(params.id)
+    const previousStatus = invoice.status
 
     if (invoice.status === 'CANCELLED' || invoice.status === 'REFUNDED') {
       return response.unprocessableEntity({
@@ -141,6 +145,28 @@ export default class InvoicesController {
     if (paidAmount >= Number(invoice.amount)) {
       invoice.status = 'PAID'
       await invoice.save()
+    }
+
+    if (invoice.status === 'PAID' && previousStatus !== 'PAID') {
+      const paidPayload: InvoicePaidPayload = {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        orderId: invoice.orderId,
+        orderNumber: invoice.orderPublicNumber ?? undefined,
+        customerId: invoice.customerId,
+        customerEmail: invoice.customerEmail ?? undefined,
+        amount: Number(invoice.amount),
+        currency: invoice.currency,
+      }
+      try {
+        await publishBillingEvent(
+          'billing.invoice_paid',
+          paidPayload as unknown as Record<string, unknown>,
+          invoice.orderId
+        )
+      } catch (err) {
+        logger.warn({ err, invoiceId: invoice.id }, '[billing] failed to publish invoice_paid')
+      }
     }
 
     return response.created({

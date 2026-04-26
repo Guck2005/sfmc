@@ -2,11 +2,18 @@ import logger from '@adonisjs/core/services/logger'
 import nodemailer, { Transporter } from 'nodemailer'
 import env from '#start/env'
 
+export interface EmailAttachment {
+  filename: string
+  content: Buffer
+}
+
 export interface NotificationPayload {
   recipient: string
   subject?: string
   body: string
   channel: 'EMAIL' | 'SMS'
+  /** Pièces jointes (e-mail uniquement). */
+  attachments?: EmailAttachment[]
 }
 
 let transporter: Transporter | null = null
@@ -39,13 +46,20 @@ export async function sendEmail(payload: NotificationPayload): Promise<boolean> 
   const senderName = env.get('BREVO_SENDER_NAME')
 
   try {
-    const info = await getTransporter().sendMail({
+    const mail: Parameters<Transporter['sendMail']>[0] = {
       from: `"${senderName}" <${senderEmail}>`,
       to: payload.recipient,
       subject: payload.subject ?? '(no subject)',
       text: payload.body,
       html: `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(payload.body)}</pre>`,
-    })
+    }
+    if (payload.attachments?.length) {
+      mail.attachments = payload.attachments.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+      }))
+    }
+    const info = await getTransporter().sendMail(mail)
     logger.info(
       { to: payload.recipient, subject: payload.subject, messageId: info.messageId },
       '[brevo] email sent'

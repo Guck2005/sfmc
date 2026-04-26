@@ -89,14 +89,23 @@ api.interceptors.response.use(
 export function extractErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as Record<string, unknown> | undefined
-    const nested =
-      data?.error &&
-      typeof data.error === 'object' &&
-      data.error !== null &&
-      'message' in data.error
-        ? String((data.error as { message?: string }).message)
-        : undefined
-    if (nested) return nested
+    const errBody =
+      data?.error && typeof data.error === 'object' && data.error !== null
+        ? (data.error as { message?: string; code?: string; details?: { requested?: number; available?: number } })
+        : null
+    if (errBody && typeof errBody.message === 'string') {
+      const { message, code, details } = errBody
+      if (
+        code === 'INSUFFICIENT_STOCK' &&
+        details &&
+        typeof details.available === 'number' &&
+        typeof details.requested === 'number' &&
+        !message.includes(String(details.available))
+      ) {
+        return `${message} (disponible : ${details.available}, demandé : ${details.requested}).`
+      }
+      return message
+    }
 
     const vine = data?.errors
     if (Array.isArray(vine) && vine.length > 0) {

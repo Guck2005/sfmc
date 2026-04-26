@@ -35,17 +35,20 @@ import {
 } from '@/components/ui/table'
 import { useProductNameMap } from '@/hooks/use-product-name-map'
 import { inventoryService } from '@/services'
-import { asArray } from '@/lib/pagination'
+import { asArray, paginationMeta } from '@/lib/pagination'
 import { extractErrorMessage } from '@/lib/api'
 import { DataTableEmpty } from '@/components/DataTableEmpty'
 import type { Stock, StockMovement, Warehouse } from '@/types/domain'
 import {
   movementFormSchema,
   MOVEMENT_FILTER_ALL,
+  movementOriginLabel,
   movementTypeLabel,
   warehouseLabel,
   type MovementFormOutput,
 } from './inventory-shared'
+
+const STOCKS_FETCH_PAGE_SIZE = 100
 
 export default function InventoryMovementsPage() {
   const qc = useQueryClient()
@@ -53,8 +56,19 @@ export default function InventoryMovementsPage() {
   const [movementStockFilter, setMovementStockFilter] = useState(MOVEMENT_FILTER_ALL)
 
   const { data: stocksData } = useQuery({
-    queryKey: ['stocks'],
-    queryFn: () => inventoryService.listStocks(),
+    queryKey: ['stocks', 'all-for-movements'],
+    queryFn: async () => {
+      const acc: Stock[] = []
+      let page = 1
+      let lastPage = 1
+      do {
+        const res = await inventoryService.listStocks({ page, limit: STOCKS_FETCH_PAGE_SIZE })
+        acc.push(...asArray<Stock>(res))
+        lastPage = paginationMeta(res)?.lastPage ?? 1
+        page++
+      } while (page <= lastPage)
+      return acc
+    },
   })
 
   const { data: warehousesData } = useQuery({
@@ -70,7 +84,7 @@ export default function InventoryMovementsPage() {
     queryFn: () => inventoryService.listMovements(movementParams),
   })
 
-  const stocks = asArray<Stock>(stocksData)
+  const stocks = stocksData ?? []
   const warehouses = asArray<Warehouse>(warehousesData)
   const { productLabel } = useProductNameMap({ limit: 200 })
 
@@ -182,7 +196,7 @@ export default function InventoryMovementsPage() {
                       </TableCell>
                       <TableCell className="text-right font-mono">{m.quantity}</TableCell>
                       <TableCell className="max-w-[200px] truncate text-sm" title={m.origin}>
-                        {m.origin}
+                        {movementOriginLabel(m.origin)}
                       </TableCell>
                       <TableCell className="max-w-[14rem] text-sm">
                         {(() => {

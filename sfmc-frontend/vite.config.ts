@@ -19,6 +19,7 @@ const proxyMap: Record<string, string> = {
   /** GraphQL inventory-service (distinct du `/graphql` reporting sur :3009). */
   '/api/inventory/graphql': 'http://localhost:3004',
   '/api/v1/orders': 'http://localhost:3005',
+  '/api/v1/webhooks': 'http://localhost:3005',
   '/api/v1/production-orders': 'http://localhost:3006',
   '/api/v1/invoices': 'http://localhost:3007',
   '/api/v1/payments': 'http://localhost:3007',

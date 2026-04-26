@@ -13,6 +13,8 @@ export async function initRabbitMQ() {
     onProductionQualityFailed,
     onInventoryCritical,
     onBillingInvoiceCreated,
+    onBillingInvoicePaid,
+    onBillingCreditNoteCreated,
   } = await import('#listeners/notification_listeners')
 
   await consume({
@@ -61,6 +63,18 @@ export async function initRabbitMQ() {
     queue: 'notif.invoice_created_q',
     routingKeys: ['billing.invoice_created'],
     handler: onBillingInvoiceCreated,
+  })
+
+  await consume({
+    queue: 'notif.invoice_paid_q',
+    routingKeys: ['billing.invoice_paid'],
+    handler: onBillingInvoicePaid,
+  })
+
+  await consume({
+    queue: 'notif.credit_note_created_q',
+    routingKeys: ['billing.credit_note_created'],
+    handler: onBillingCreditNoteCreated,
   })
 }
 

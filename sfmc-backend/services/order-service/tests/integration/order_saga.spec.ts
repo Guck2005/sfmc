@@ -19,24 +19,38 @@ async function sleep(ms: number) {
 }
 
 async function getStockFromInventory(productId: string) {
-  // Try to find the stock directly via inventaire API
-  const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks?productId=${productId}`, {
-    headers: { authorization: `Bearer ${token}` },
-  })
-  if (res.statusCode !== 200) return null
-  const body = (await res.body.json()) as any
-  const stocks = body.data || body
-  return Array.isArray(stocks) && stocks.length > 0 ? stocks[0] : null
+  let page = 1
+  let lastPage = 1
+  do {
+    const res = await undiciRequest(
+      `${INVENTORY_URL}/api/v1/stocks?productId=${encodeURIComponent(productId)}&page=${page}&limit=100`,
+      { headers: { authorization: `Bearer ${token}` } }
+    )
+    if (res.statusCode !== 200) return null
+    const body = (await res.body.json()) as any
+    const stocks = body.data || []
+    if (Array.isArray(stocks) && stocks.length > 0) return stocks[0]
+    lastPage = Number(body.meta?.lastPage) || 1
+    page++
+  } while (page <= lastPage)
+  return null
 }
 
 async function findAvailableProduct() {
-  const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks`, {
-    headers: { authorization: `Bearer ${token}` },
-  })
-  const body = (await res.body.json()) as any
-  const stocks = body.data || body
-  const prod = stocks.find((s: any) => Number(s.quantity) > Number(s.reserved))
-  return prod?.product || prod?.productId
+  let page = 1
+  let lastPage = 1
+  do {
+    const res = await undiciRequest(`${INVENTORY_URL}/api/v1/stocks?page=${page}&limit=100`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    const body = (await res.body.json()) as any
+    const stocks = body.data || []
+    const prod = stocks.find((s: any) => Number(s.quantity) > Number(s.reserved))
+    if (prod) return prod?.product || prod?.productId
+    lastPage = Number(body.meta?.lastPage) || 1
+    page++
+  } while (page <= lastPage)
+  return null
 }
 
 test.group('Order Saga Integration (Vraie Infra)', (group) => {

@@ -10,7 +10,7 @@ export default function NotFoundPage() {
         L'URL demandée n'existe pas ou vous n'avez pas les droits pour y accéder.
       </p>
       <Button asChild className="mt-6">
-        <Link to="/">Retour au tableau de bord</Link>
+        <Link to="/">Retour à l’accueil</Link>
       </Button>
     </div>
   )

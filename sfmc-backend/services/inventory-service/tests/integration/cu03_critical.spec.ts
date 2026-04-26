@@ -66,11 +66,20 @@ async function tryJson(url: string, opts: any = {}): Promise<{ status: number; b
 
 async function listStocks(): Promise<any[]> {
   const b = inventoryBearer()
-  const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks`, {
-    headers: b ? { authorization: `Bearer ${b}` } : {},
-  })
-  if (!res || res.status !== 200) return []
-  return res.body.data ?? res.body ?? []
+  const acc: any[] = []
+  let page = 1
+  let lastPage = 1
+  do {
+    const res = await tryJson(`${INVENTORY_URL}/api/v1/stocks?page=${page}&limit=100`, {
+      headers: b ? { authorization: `Bearer ${b}` } : {},
+    })
+    if (!res || res.status !== 200) return acc
+    const chunk = res.body.data ?? []
+    acc.push(...chunk)
+    lastPage = Number(res.body.meta?.lastPage) || 1
+    page++
+  } while (page <= lastPage)
+  return acc
 }
 
 async function setThreshold(stockId: string, threshold: number) {

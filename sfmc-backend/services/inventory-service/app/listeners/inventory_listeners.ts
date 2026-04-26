@@ -3,7 +3,7 @@ import { consume, publishEvent } from '#services/rabbitmq'
 import {
   isEventProcessed,
   markEventProcessed,
-  reserveForOrder,
+  confirmGlobalAvailabilityForOrder,
   releaseForOrder,
   InsufficientStockError,
   SERVICE_NAME,
@@ -95,7 +95,7 @@ export async function startInventoryListeners(): Promise<void> {
     },
   })
 
-  // order.created → reserve stock + emit inventory.reserved OR inventory.reservation_failed
+  // order.created → vérif dispo globale + emit inventory.reserved (entrepôt fixé à l’expédition)
   await consume({
     queue: 'inventory.order.created',
     routingKeys: ['order.created'],
@@ -107,28 +107,25 @@ export async function startInventoryListeners(): Promise<void> {
       await SagaLog.create({
         sagaId,
         sagaType: 'order_creation',
-        step: 'reserve_stock',
+        step: 'check_stock_availability',
         status: 'PENDING',
         payload: payload as unknown as Record<string, unknown>,
       })
 
       try {
-        const { reservations } = await reserveForOrder({
-          orderId: payload.orderId,
-          lines: payload.lines,
-        })
+        await confirmGlobalAvailabilityForOrder({ lines: payload.lines })
         await SagaLog.create({
           sagaId,
           sagaType: 'order_creation',
-          step: 'reserve_stock',
+          step: 'check_stock_availability',
           status: 'COMPLETED',
-          payload: { reservations } as unknown as Record<string, unknown>,
+          payload: { note: 'global_availability_no_warehouse_lock' } as unknown as Record<string, unknown>,
         })
 
         const reservedPayload: InventoryReservedPayload = {
           sagaId,
           orderId: payload.orderId,
-          reservations: reservations.map((r) => ({ productId: r.productId, quantity: r.quantity })),
+          reservations: payload.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
         }
         await publishEvent(
           createEvent(
@@ -139,7 +136,7 @@ export async function startInventoryListeners(): Promise<void> {
             event.metadata.correlationId
           )
         )
-        logger.info({ orderId: payload.orderId }, '[inventory] reserved → inventory.reserved')
+        logger.info({ orderId: payload.orderId }, '[inventory] availability OK → inventory.reserved')
       } catch (err) {
         const failedPayload: InventoryReservationFailedPayload = {
           sagaId,
@@ -154,7 +151,7 @@ export async function startInventoryListeners(): Promise<void> {
         await SagaLog.create({
           sagaId,
           sagaType: 'order_creation',
-          step: 'reserve_stock',
+          step: 'check_stock_availability',
           status: 'FAILED',
           payload: failedPayload as unknown as Record<string, unknown>,
         })

@@ -39,3 +39,24 @@ export const reserveValidator = vine.compile(
 )
 
 export const releaseValidator = reserveValidator
+
+const shipmentLine = vine.object({
+  productId: vine.string().uuid(),
+  quantity: vine.number().positive(),
+})
+
+const shipmentAllocation = vine.object({
+  productId: vine.string().uuid(),
+  quantity: vine.number().positive(),
+  warehouseId: vine.string().uuid(),
+})
+
+/** Mono-entrepôt : `warehouseId` + `lines`. Multi : `allocations` (sommes par produit = sommes des `lines`). */
+export const fulfillShipmentValidator = vine.compile(
+  vine.object({
+    orderId: vine.string().uuid(),
+    warehouseId: vine.string().uuid().optional(),
+    lines: vine.array(shipmentLine).minLength(1),
+    allocations: vine.array(shipmentAllocation).optional(),
+  })
+)
