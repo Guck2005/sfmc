@@ -137,3 +137,7 @@ volumes:
   notification_db_data:
   reporting_db_data:
   redis_data:
+  
+networks:
+  sfmc-network:
+    driver: bridge

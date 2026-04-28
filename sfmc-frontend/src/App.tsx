@@ -30,6 +30,7 @@ import UsersPage from '@/pages/Users'
 import ProfilePage from '@/pages/Profile'
 import NotFoundPage from '@/pages/NotFound'
 import DesignShowcasePage from '@/pages/DesignShowcase'
+import AuthSuccess from './pages/AuthSuccess'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,7 @@ export default function App() {
         <AuthBootstrap />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/auth/success" element={<AuthSuccess/>} />
           <Route path="/design-showcase" element={<DesignShowcasePage />} />
 
           <Route element={<ProtectedRoute />}>

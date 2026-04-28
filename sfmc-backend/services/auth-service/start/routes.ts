@@ -36,6 +36,13 @@ router
     router.post('/login', [() => import('#controllers/auth_controller'), 'login']).use(
       middleware.throttle()
     )
+  
+    router.get('/google/redirect', ({ ally }:HttpContext) => {
+      return ally.use('google').redirect()
+    })
+
+    router.get('/google/callback', [() => import('#controllers/auth_controller'), 'loginSocial'])
+
     router.post('/refresh', [() => import('#controllers/auth_controller'), 'refresh'])
     router.post('/logout', [() => import('#controllers/auth_controller'), 'logout'])
     router.post('/validate', [() => import('#controllers/auth_controller'), 'validate'])

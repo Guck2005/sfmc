@@ -28,5 +28,13 @@ export default await Env.create(new URL('../', import.meta.url), {
   REFRESH_TOKEN_EXPIRES_DAYS: Env.schema.number.optional(),
   REDIS_URL: Env.schema.string(),
   RABBITMQ_URL: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Variables for configuring ally package
+  |----------------------------------------------------------
+  */
+  GOOGLE_CLIENT_ID: Env.schema.string(),
+  GOOGLE_CLIENT_SECRET: Env.schema.string()
 })
 

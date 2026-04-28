@@ -9,6 +9,11 @@ export const authService = {
     return data.data
   },
 
+  async socialLogin() {
+    window.location.href =
+      "http://localhost:3001/api/v1/auth/google/redirect"
+  },
+
   async logout() {
     const refreshToken = useAuthStore.getState().refreshToken
     try {

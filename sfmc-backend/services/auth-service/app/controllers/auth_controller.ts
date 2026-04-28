@@ -94,11 +94,11 @@ export default class AuthController {
    * POST /api/v1/auth/login
    * Authentification locale → JWT + Refresh Token
    */
-  async login({ request, response }: HttpContext) {
+  async login({request, response }: HttpContext) {
     const { email, password } = await request.validateUsing(loginValidator)
 
     const user = await User.query().where('email', email).where('is_active', true).first()
-
+    
     if (!user || !(await hash.verify(user.password, password))) {
       return response.unauthorized({
         error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' },
@@ -117,6 +117,47 @@ export default class AuthController {
         user: { id: user.id, email: user.email, role: user.role },
       },
     })
+  }
+
+  async loginSocial({ ally, response }: HttpContext) {
+    try {
+      const googleUser = await ally.use('google').user() ?? null
+      let user = await User.query().where('email', googleUser.email).where('is_active', true).first()
+
+      let requestedRole: 'ADMIN' | 'OPERATOR' | 'CLIENT' = 'CLIENT'
+      if(!user)
+      {
+        user = await User.create({
+          id: randomUUID(),
+          email: googleUser.email,
+          password: googleUser.email,
+          fullName: googleUser.name ?? null,
+          role: requestedRole,
+          isActive: true,
+        })
+      }
+
+      const accessToken = tokenService.generateAccessToken(user)
+      const refreshToken = await tokenService.generateRefreshToken(user)
+
+      return response.redirect(
+        `http://localhost:5173/auth/success?accessToken=${accessToken}&refreshToken=${refreshToken}&email=${user.email}&role=${user.role}&id=${user.id}`
+      )
+    } catch (error) {
+       return response.internalServerError({
+        error: { code: 'ERREUR_INTERNE', message: error.message },
+      })
+    }
+
+    /* return response.ok({
+      data: {
+        accessToken,
+        refreshToken,
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: { id: user.id, email: user.email, role: user.role },
+      },
+    }) */
   }
 
   /**
